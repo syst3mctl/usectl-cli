@@ -71,6 +71,11 @@ func (e *APIError) Error() string {
 
 // do performs an HTTP request and decodes the JSON response.
 func (c *Client) do(method, path string, body interface{}, result interface{}) error {
+	return c.doWithHeaders(method, path, body, result, nil)
+}
+
+// doWithHeaders performs an HTTP request with extra headers and decodes the JSON response.
+func (c *Client) doWithHeaders(method, path string, body interface{}, result interface{}, headers map[string]string) error {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -89,6 +94,9 @@ func (c *Client) do(method, path string, body interface{}, result interface{}) e
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -119,6 +127,37 @@ func (c *Client) do(method, path string, body interface{}, result interface{}) e
 		}
 	}
 	return nil
+}
+
+// doRaw performs an HTTP request and returns the raw response (for binary downloads).
+func (c *Client) doRaw(method, path string) (*http.Response, error) {
+	url := c.BaseURL + path
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request to %s: %w", url, err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
+			return nil, &APIError{StatusCode: resp.StatusCode, Message: errResp.Error}
+		}
+		return nil, &APIError{StatusCode: resp.StatusCode, Message: string(respBody)}
+	}
+
+	return resp, nil
 }
 
 // Get performs a GET request.

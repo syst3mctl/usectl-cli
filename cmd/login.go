@@ -113,7 +113,53 @@ var profileCmd = &cobra.Command{
 	},
 }
 
+var (
+	profileUpdateUsername string
+	profileUpdateEmail    string
+	profileUpdatePassword string
+)
+
+var profileUpdateCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update your profile",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+
+		req := api.UpdateProfileRequest{}
+		if cmd.Flags().Changed("username") {
+			req.Username = profileUpdateUsername
+		}
+		if cmd.Flags().Changed("email") {
+			req.Email = profileUpdateEmail
+		}
+		if cmd.Flags().Changed("password") {
+			req.Password = profileUpdatePassword
+		}
+
+		user, err := client.UpdateProfile(req)
+		if err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			return output.JSON(user)
+		}
+
+		fmt.Printf("✓ Profile updated: %s (%s)\n", user.Username, user.Email)
+		return nil
+	},
+}
+
 func init() {
+	profileUpdateCmd.Flags().StringVar(&profileUpdateUsername, "username", "", "New username")
+	profileUpdateCmd.Flags().StringVar(&profileUpdateEmail, "email", "", "New email")
+	profileUpdateCmd.Flags().StringVar(&profileUpdatePassword, "password", "", "New password")
+
+	profileCmd.AddCommand(profileUpdateCmd)
+
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(registerCmd)
 	rootCmd.AddCommand(profileCmd)

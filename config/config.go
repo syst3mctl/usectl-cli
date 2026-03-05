@@ -15,8 +15,9 @@ const (
 
 // Config holds persistent CLI configuration.
 type Config struct {
-	Token  string `json:"token"`
-	APIURL string `json:"api_url"`
+	Token       string `json:"token"`
+	APIURL      string `json:"api_url"`
+	GitHubToken string `json:"github_token,omitempty"`
 }
 
 // configPath returns ~/.usectl/config.json
