@@ -14,7 +14,13 @@ import (
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Log in to your account",
+	Short: "Authenticate with the usectl platform",
+	Long: `Interactively log in with your email and password. The JWT token is saved
+to ~/.usectl/config.json and used for all subsequent API calls.
+
+Use --api-url to connect to a different platform instance.`,
+	Example: `  usectl login
+  usectl login --api-url https://my-instance.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := api.NewClientUnauth(apiURL)
 
@@ -51,7 +57,10 @@ var loginCmd = &cobra.Command{
 
 var registerCmd = &cobra.Command{
 	Use:   "register",
-	Short: "Create a new account",
+	Short: "Create a new account on the platform",
+	Long: `Register a new user account. After registration, the account may need
+admin approval before you can log in (depends on platform configuration).`,
+	Example: `  usectl register`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := api.NewClientUnauth(apiURL)
 
@@ -89,7 +98,9 @@ var registerCmd = &cobra.Command{
 
 var profileCmd = &cobra.Command{
 	Use:   "profile",
-	Short: "View your profile",
+	Short: "View your user profile (ID, username, email, role)",
+	Example: `  usectl profile
+  usectl profile --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -121,7 +132,10 @@ var (
 
 var profileUpdateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update your profile",
+	Short: "Update your username, email, or password",
+	Long:  `Update one or more profile fields. Only the flags you provide will be changed.`,
+	Example: `  usectl profile update --username newname
+  usectl profile update --email new@example.com --password newpass123`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {

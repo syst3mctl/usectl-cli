@@ -14,8 +14,27 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "usectl",
-	Short: "usectl — CLI for the k-deploy platform",
-	Long:  "Manage projects, deployments, domains, and more on your k-deploy cluster from the terminal.",
+	Short: "usectl — CLI for the usectl.com self-hosted deployment platform",
+	Long: `usectl is the CLI for the usectl.com platform — a self-hosted Vercel alternative
+running on K3s. It provides full lifecycle management for your applications.
+
+Command Groups:
+  login/register  Authenticate with the platform
+  profile         View and update your user profile
+  projects        Create, deploy, update, delete, and monitor projects
+  github          GitHub App integration (OAuth, repos, branches)
+
+All commands support --json for machine-readable output, making the CLI
+suitable for scripting and AI agent automation.
+
+Quick Start:
+  1. usectl login                                    # Authenticate
+  2. usectl github login                             # Connect GitHub
+  3. usectl projects create --name my-app \           # Create project
+     --repo https://github.com/user/repo \  
+     --domain my-app --port 3000
+  4. usectl projects deploy <id>                     # Deploy latest commit
+  5. usectl projects logs <id>                       # View logs`,
 }
 
 func Execute() {

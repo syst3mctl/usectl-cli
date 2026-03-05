@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/giorgi/usectl/api"
+	"github.com/giorgi/usectl/config"
 	"github.com/giorgi/usectl/output"
 	"github.com/spf13/cobra"
 )
@@ -12,13 +13,40 @@ import (
 var projectsCmd = &cobra.Command{
 	Use:     "projects",
 	Aliases: []string{"project", "p"},
-	Short:   "Manage projects",
+	Short:   "Manage projects — create, deploy, update, delete, and monitor applications",
+	Long: `Manage the full lifecycle of applications on the usectl platform.
+
+A project represents a deployable application linked to a GitHub repository.
+Each project gets its own Kubernetes namespace, optional PostgreSQL database,
+and optional S3 storage bucket (MinIO).
+
+Subcommands:
+  list        List all projects with status and features
+  get         Show detailed project info including deployments
+  create      Create a new project from a GitHub repository
+  update      Modify project settings (domain, branch, port)
+  delete      Delete a project and all its resources (namespace, DB, S3)
+  deploy      Trigger a new build and deployment
+  start/stop  Scale the project's containers up or down
+  status      Check if the project's containers are running
+  logs        View live runtime logs from the application
+  build-logs  View build and deploy logs for a specific deployment
+  stats       View CPU, memory, and network usage metrics
+  s3          Manage S3 object storage for the project`,
 }
 
 var projectsListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short:   "List all projects",
+	Short:   "List all projects with their status, domain, and features",
+	Long: `Returns a table of all projects the authenticated user has access to.
+Admin users see all projects. Columns include ID, name, domain, type,
+latest deployment status, enabled features (db/s3), and branch.
+
+Use --json for structured output suitable for scripting or AI agents.`,
+	Example: `  usectl projects list
+  usectl projects list --json
+  usectl p ls`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -62,8 +90,13 @@ var projectsListCmd = &cobra.Command{
 
 var projectsGetCmd = &cobra.Command{
 	Use:   "get <id>",
-	Short: "Get project details",
-	Args:  cobra.ExactArgs(1),
+	Short: "Get detailed project information including database and S3 status",
+	Long: `Returns detailed information about a single project, including repo URL,
+branch, domain, port, database provisioning status, S3 bucket status, and
+creation date. The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
+	Example: `  usectl projects get a8f15889
+  usectl projects get a8f15889-3636-402d-99a1-3492ba6b4383 --json`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -125,11 +158,48 @@ var (
 
 var projectsCreateCmd = &cobra.Command{
 	Use:   "create",
-	Short: "Create a new project",
+	Short: "Create a new project from a GitHub repository",
+	Long: `Create a new project linked to a GitHub repository. The project will be
+assigned its own Kubernetes namespace (kdeploy-<name>) and can optionally
+provision a PostgreSQL database (--db) and S3 bucket (--s3).
+
+The GitHub App installation ID is auto-detected if you have previously run
+'usectl github login'. For private repos, this ensures the build system
+can clone using installation tokens.
+
+Supported project types:
+  service  — Long-running server (Node.js, Go, Python, etc.)
+  static   — Static site served via nginx
+
+The system auto-detects Dockerfile, Next.js, Vite, or Node.js projects
+and injects an appropriate Dockerfile if none exists.`,
+	Example: `  # Minimal service
+  usectl projects create --name my-api --repo https://github.com/user/api --domain my-api --port 3000
+
+  # Full-featured with database and S3
+  usectl projects create --name my-app --repo https://github.com/user/app \\
+    --domain my-app --type service --branch main --port 8080 --db --s3
+
+  # Static site
+  usectl projects create --name docs --repo https://github.com/user/docs \\
+    --domain docs --type static`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
+		}
+
+		// Auto-detect installation ID if not provided.
+		if createInstallID == 0 {
+			cfg, _ := config.Load()
+			if cfg != nil && cfg.GitHubToken != "" {
+				installations, err := client.ListGitHubInstallations(cfg.GitHubToken)
+				if err == nil && len(installations) > 0 {
+					createInstallID = installations[0].ID
+					fmt.Printf("  Auto-detected GitHub App installation: %d (%s)\n",
+						createInstallID, installations[0].Account.Login)
+				}
+			}
 		}
 
 		req := api.CreateProjectRequest{
@@ -174,8 +244,16 @@ var (
 
 var projectsUpdateCmd = &cobra.Command{
 	Use:   "update <id>",
-	Short: "Update a project",
-	Args:  cobra.ExactArgs(1),
+	Short: "Update project settings (domain, branch, port, etc.)",
+	Long: `Modify one or more settings of an existing project. Only the flags you
+provide will be updated — omitted fields remain unchanged.
+
+If --port or --domain is changed, the K8s resources (Deployment, Service,
+IngressRoute) are automatically updated in the background.`,
+	Example: `  usectl projects update a8f15889 --port 3000
+  usectl projects update a8f15889 --domain new-domain --branch develop
+  usectl projects update a8f15889 --installation-id 114078944`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -218,8 +296,15 @@ var projectsUpdateCmd = &cobra.Command{
 
 var projectsDeleteCmd = &cobra.Command{
 	Use:   "delete <id>",
-	Short: "Delete a project",
-	Args:  cobra.ExactArgs(1),
+	Short: "Delete a project and all associated resources (namespace, DB, S3)",
+	Long: `Permanently delete a project and clean up all associated resources:
+  - Kubernetes namespace and all resources inside (pods, services, ingress)
+  - Provisioned PostgreSQL database and user (if --db was used)
+  - S3 bucket, objects, user, and policy (if --s3 was used)
+
+This action is irreversible.`,
+	Example: `  usectl projects delete a8f15889`,
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -235,8 +320,16 @@ var projectsDeleteCmd = &cobra.Command{
 
 var projectsDeployCmd = &cobra.Command{
 	Use:   "deploy <id>",
-	Short: "Trigger a new deployment",
-	Args:  cobra.ExactArgs(1),
+	Short: "Trigger a new build and deployment from the latest commit",
+	Long: `Trigger a build pipeline for the project. The backend auto-resolves the
+latest commit on the project's branch via the GitHub API, clones the repo,
+builds a container image via Kaniko, pushes it to the private registry,
+and deploys it to Kubernetes.
+
+The build runs asynchronously. Use 'usectl projects logs <id>' or
+'usectl projects build-logs <project-id> <deployment-id>' to monitor progress.`,
+	Example: `  usectl projects deploy a8f15889`,
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -260,8 +353,12 @@ var logsLines int
 
 var projectsLogsCmd = &cobra.Command{
 	Use:   "logs <id>",
-	Short: "View runtime logs",
-	Args:  cobra.ExactArgs(1),
+	Short: "View live runtime logs from the running application containers",
+	Long: `Fetch the latest log output from the project's running pods.
+Use --tail to control how many lines to retrieve (default: 100).`,
+	Example: `  usectl projects logs a8f15889
+  usectl projects logs a8f15889 --tail 500`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -283,8 +380,11 @@ var projectsLogsCmd = &cobra.Command{
 
 var projectsBuildLogsCmd = &cobra.Command{
 	Use:   "build-logs <project-id> <deployment-id>",
-	Short: "View build/deploy logs for a specific deployment",
-	Args:  cobra.ExactArgs(2),
+	Short: "View build and deploy logs for a specific deployment",
+	Long: `Retrieve the full build log (clone + Kaniko build) and deploy log for a
+specific deployment. Use 'usectl projects get <id>' to see deployment IDs.`,
+	Example: `  usectl projects build-logs a8f15889 d4e5f6a7`,
+	Args:    cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -312,9 +412,10 @@ var projectsBuildLogsCmd = &cobra.Command{
 }
 
 var projectsStartCmd = &cobra.Command{
-	Use:   "start <id>",
-	Short: "Start a stopped project",
-	Args:  cobra.ExactArgs(1),
+	Use:     "start <id>",
+	Short:   "Start a stopped project (scale replicas to 1)",
+	Example: `  usectl projects start a8f15889`,
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -329,9 +430,10 @@ var projectsStartCmd = &cobra.Command{
 }
 
 var projectsStopCmd = &cobra.Command{
-	Use:   "stop <id>",
-	Short: "Stop a running project",
-	Args:  cobra.ExactArgs(1),
+	Use:     "stop <id>",
+	Short:   "Stop a running project (scale replicas to 0)",
+	Example: `  usectl projects stop a8f15889`,
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -346,9 +448,11 @@ var projectsStopCmd = &cobra.Command{
 }
 
 var projectsStatusCmd = &cobra.Command{
-	Use:   "status <id>",
-	Short: "Check project container status",
-	Args:  cobra.ExactArgs(1),
+	Use:     "status <id>",
+	Short:   "Check if the project's containers are running or stopped",
+	Long:    `Returns the running status and current replica count of the project's deployment.`,
+	Example: `  usectl projects status a8f15889`,
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -370,8 +474,16 @@ var projectsStatusCmd = &cobra.Command{
 
 var projectsStatsCmd = &cobra.Command{
 	Use:   "stats <id>",
-	Short: "View resource usage stats",
-	Args:  cobra.ExactArgs(1),
+	Short: "View CPU, memory, network, database size, and storage usage",
+	Long: `Returns resource usage metrics for the project, including:
+  - Per-pod CPU and memory usage
+  - Network RX/TX
+  - Pod restart count
+  - Database size (if provisioned)
+  - S3 storage used (if provisioned)`,
+	Example: `  usectl projects stats a8f15889
+  usectl projects stats a8f15889 --json`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {

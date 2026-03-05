@@ -19,12 +19,24 @@ import (
 var githubCmd = &cobra.Command{
 	Use:     "github",
 	Aliases: []string{"gh"},
-	Short:   "GitHub App integration",
+	Short:   "GitHub App integration — authenticate, list repos, and branches",
+	Long: `Manage GitHub App integration for private repository access.
+
+First run 'usectl github login' to authenticate via OAuth. This saves a GitHub
+token locally that is used by other commands and auto-detected during project creation.
+
+Subcommands:
+  login          Authenticate with GitHub via browser OAuth flow
+  app-info       Display the GitHub App client ID
+  installations  List GitHub App installations on your account
+  repos          List repositories accessible by an installation
+  branches       List branches for a specific repository`,
 }
 
 var githubAppInfoCmd = &cobra.Command{
-	Use:   "app-info",
-	Short: "Show the GitHub App client ID",
+	Use:     "app-info",
+	Short:   "Display the GitHub App client ID used for OAuth",
+	Example: `  usectl github app-info`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -171,7 +183,12 @@ func getGitHubToken() (string, error) {
 var githubInstallationsCmd = &cobra.Command{
 	Use:     "installations",
 	Aliases: []string{"installs"},
-	Short:   "List GitHub App installations",
+	Short:   "List GitHub App installations (shows installation IDs and accounts)",
+	Long: `List all GitHub App installations for your authenticated GitHub account.
+The installation ID is used internally for cloning private repos during builds.
+It is auto-detected during 'usectl projects create' if you are logged in.`,
+	Example: `  usectl github installations
+  usectl gh installs --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -208,7 +225,11 @@ var githubReposInstallID int64
 
 var githubReposCmd = &cobra.Command{
 	Use:   "repos",
-	Short: "List repositories for a GitHub App installation",
+	Short: "List repositories accessible to a GitHub App installation",
+	Long: `Returns all repositories that the GitHub App installation has access to.
+Includes repository name, visibility (public/private), and clone URL.`,
+	Example: `  usectl github repos --installation 114078944
+  usectl github repos --installation 114078944 --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -248,7 +269,10 @@ var (
 
 var githubBranchesCmd = &cobra.Command{
 	Use:   "branches",
-	Short: "List branches for a repository",
+	Short: "List branches for a repository via the GitHub App",
+	Long: `Returns all branches for a repository, including whether each is protected.
+Requires --installation and --repo flags.`,
+	Example: `  usectl github branches --installation 114078944 --repo syst3mctl/my-app`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
