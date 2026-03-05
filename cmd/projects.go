@@ -111,15 +111,16 @@ var projectsGetCmd = &cobra.Command{
 
 // Flags for create command
 var (
-	createName    string
-	createRepo    string
-	createBranch  string
-	createDomain  string
-	createType    string
-	createPort    int
-	createDB      bool
-	createS3      bool
-	createGHToken string
+	createName      string
+	createRepo      string
+	createBranch    string
+	createDomain    string
+	createType      string
+	createPort      int
+	createDB        bool
+	createS3        bool
+	createGHToken   string
+	createInstallID int64
 )
 
 var projectsCreateCmd = &cobra.Command{
@@ -142,6 +143,9 @@ var projectsCreateCmd = &cobra.Command{
 			NeedsS3:     createS3,
 			GithubToken: createGHToken,
 		}
+		if createInstallID > 0 {
+			req.InstallationID = &createInstallID
+		}
 
 		project, err := client.CreateProject(req)
 		if err != nil {
@@ -160,11 +164,12 @@ var projectsCreateCmd = &cobra.Command{
 
 // Flags for update command
 var (
-	updateName    string
-	updateDomain  string
-	updateBranch  string
-	updatePort    int
-	updateGHToken string
+	updateName      string
+	updateDomain    string
+	updateBranch    string
+	updatePort      int
+	updateGHToken   string
+	updateInstallID int64
 )
 
 var projectsUpdateCmd = &cobra.Command{
@@ -192,6 +197,9 @@ var projectsUpdateCmd = &cobra.Command{
 		}
 		if cmd.Flags().Changed("github-token") {
 			req.GithubToken = &updateGHToken
+		}
+		if cmd.Flags().Changed("installation-id") {
+			req.InstallationID = &updateInstallID
 		}
 
 		project, err := client.UpdateProject(args[0], req)
@@ -406,6 +414,7 @@ func init() {
 	projectsCreateCmd.Flags().BoolVar(&createDB, "db", false, "Provision a PostgreSQL database")
 	projectsCreateCmd.Flags().BoolVar(&createS3, "s3", false, "Provision S3 object storage (MinIO)")
 	projectsCreateCmd.Flags().StringVar(&createGHToken, "github-token", "", "GitHub token for private repos")
+	projectsCreateCmd.Flags().Int64Var(&createInstallID, "installation-id", 0, "GitHub App installation ID (from 'usectl github installations')")
 	projectsCreateCmd.MarkFlagRequired("name")
 	projectsCreateCmd.MarkFlagRequired("repo")
 	projectsCreateCmd.MarkFlagRequired("domain")
@@ -416,6 +425,7 @@ func init() {
 	projectsUpdateCmd.Flags().StringVar(&updateBranch, "branch", "", "New branch")
 	projectsUpdateCmd.Flags().IntVar(&updatePort, "port", 0, "New container port")
 	projectsUpdateCmd.Flags().StringVar(&updateGHToken, "github-token", "", "New GitHub token")
+	projectsUpdateCmd.Flags().Int64Var(&updateInstallID, "installation-id", 0, "GitHub App installation ID")
 
 	// Logs flags
 	projectsLogsCmd.Flags().IntVar(&logsLines, "tail", 100, "Number of log lines")
