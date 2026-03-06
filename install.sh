@@ -1,73 +1,53 @@
-#!/bin/bash
-set -euo pipefail
-
-# usectl installer
+#!/bin/sh
+# usectl CLI installer
 # Usage: curl -fsSL https://usectl.com/install.sh | bash
+set -e
 
-REPO="https://usectl.com/releases"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
-BINARY_NAME="usectl"
+BINARY="usectl"
+INSTALL_DIR="/usr/local/bin"
+BASE_URL="https://usectl.com/releases/latest"
 
-# --- Detect OS & Architecture ---
-
-OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-ARCH="$(uname -m)"
+# Detect OS and architecture
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
 
 case "$ARCH" in
-  x86_64|amd64)  ARCH="amd64" ;;
+  x86_64|amd64) ARCH="amd64" ;;
   aarch64|arm64) ARCH="arm64" ;;
-  *)
-    echo "Error: unsupported architecture: $ARCH"
-    exit 1
-    ;;
+  *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
 case "$OS" in
-  linux)  OS="linux" ;;
-  darwin) OS="darwin" ;;
-  *)
-    echo "Error: unsupported OS: $OS"
-    exit 1
-    ;;
+  linux|darwin) ;;
+  mingw*|msys*|cygwin*) OS="windows" ;;
+  *) echo "Unsupported OS: $OS"; exit 1 ;;
 esac
 
-DOWNLOAD_URL="${REPO}/latest/${BINARY_NAME}-${OS}-${ARCH}"
+FILENAME="${BINARY}-${OS}-${ARCH}"
+URL="${BASE_URL}/${FILENAME}"
 
-echo "==> Downloading usectl for ${OS}/${ARCH}..."
-echo "    ${DOWNLOAD_URL}"
+echo "==> Downloading ${BINARY} for ${OS}/${ARCH}..."
+echo "    ${URL}"
 
-TMP_DIR="$(mktemp -d)"
-TMP_FILE="${TMP_DIR}/${BINARY_NAME}"
+TMP_DIR=$(mktemp -d)
+cd "$TMP_DIR"
 
-cleanup() {
-  rm -rf "$TMP_DIR"
-}
-trap cleanup EXIT
+curl -fsSL -o "$BINARY" "$URL"
+chmod +x "$BINARY"
 
-if command -v curl &>/dev/null; then
-  curl -fsSL -o "$TMP_FILE" "$DOWNLOAD_URL"
-elif command -v wget &>/dev/null; then
-  wget -qO "$TMP_FILE" "$DOWNLOAD_URL"
-else
-  echo "Error: curl or wget is required"
-  exit 1
-fi
-
-chmod +x "$TMP_FILE"
-
-# --- Install ---
-
+# Install
+echo "==> Installing to ${INSTALL_DIR}/${BINARY}..."
 if [ -w "$INSTALL_DIR" ]; then
-  mv "$TMP_FILE" "${INSTALL_DIR}/${BINARY_NAME}"
+  mv "$BINARY" "$INSTALL_DIR/"
 else
-  echo "==> Installing to ${INSTALL_DIR} (requires sudo)..."
-  sudo mv "$TMP_FILE" "${INSTALL_DIR}/${BINARY_NAME}"
+  sudo mv "$BINARY" "$INSTALL_DIR/"
 fi
 
-echo ""
-echo "✓ usectl installed to ${INSTALL_DIR}/${BINARY_NAME}"
+# Cleanup
+rm -rf "$TMP_DIR"
+
+echo "==> ${BINARY} installed successfully!"
 echo ""
 echo "Get started:"
-echo "  usectl login"
-echo "  usectl projects list"
-echo ""
+echo "  ${BINARY} login"
+echo "  ${BINARY} --help"

@@ -12,9 +12,13 @@ var (
 	jsonOutput bool
 )
 
+// Version is set at build time by GoReleaser via ldflags.
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "usectl",
-	Short: "usectl — CLI for the usectl.com self-hosted deployment platform",
+	Use:     "usectl",
+	Short:   "usectl — CLI for the usectl.com self-hosted deployment platform",
+	Version: Version,
 	Long: `usectl is the CLI for the usectl.com platform — a self-hosted Vercel alternative
 running on K3s. It provides full lifecycle management for your applications.
 
@@ -45,6 +49,6 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "API base URL (default: from config or https://usectl.com)")
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "API base URL (default: from config or https://manager.usectl.com)")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 }

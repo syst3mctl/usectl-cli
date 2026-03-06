@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	DefaultAPIURL = "https://usectl.com"
+	DefaultAPIURL = "https://manager.usectl.com"
 	configDir     = ".usectl"
 	configFile    = "config.json"
 )
