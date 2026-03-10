@@ -1,11 +1,11 @@
 #!/bin/sh
 # usectl CLI installer
-# Usage: curl -fsSL https://usectl.com/install.sh | bash
+# Usage: curl -fsSL https://manager.usectl.com/install.sh | bash
 set -e
 
 BINARY="usectl"
 INSTALL_DIR="/usr/local/bin"
-BASE_URL="https://usectl.com/releases/latest"
+BASE_URL="https://manager.usectl.com/releases/latest"
 
 # Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

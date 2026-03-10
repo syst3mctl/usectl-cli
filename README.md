@@ -11,17 +11,17 @@ Manage projects, deployments, domains, and more on your K-Deploy cluster from th
 ### Quick Install (Linux)
 
 ```bash
-curl -fsSL https://usectl.com/install.sh | bash
+curl -fsSL https://manager.usectl.com/install.sh | bash
 ```
 
 This downloads the latest `usectl` binary to `/usr/local/bin`.
 
 ### Manual Install
 
-Download the binary from [releases](https://usectl.com/releases), make it executable, and move it to your PATH:
+Download the binary from [releases](https://manager.usectl.com/releases/latest), make it executable, and move it to your PATH:
 
 ```bash
-curl -fsSL -o usectl https://usectl.com/releases/latest/usectl-linux-amd64
+curl -fsSL -o usectl https://manager.usectl.com/releases/latest/usectl-linux-amd64
 chmod +x usectl
 sudo mv usectl /usr/local/bin/
 ```
@@ -31,8 +31,8 @@ sudo mv usectl /usr/local/bin/
 Requires Go 1.25+:
 
 ```bash
-git clone https://github.com/giorgi/usectl.git
-cd usectl
+git clone https://github.com/syst3mctl/usectl-cli.git
+cd usectl-cli
 go build -o usectl .
 sudo mv usectl /usr/local/bin/
 ```
@@ -136,7 +136,7 @@ Paste the output into your Claude Desktop `claude_desktop_config.json` to connec
 ## Global Flags
 
 ```
---api-url    Override the API base URL (default: https://usectl.com)
+--api-url    Override the API base URL (default: https://manager.usectl.com)
 --json       Output in JSON format
 ```
 
@@ -149,7 +149,7 @@ Config is stored at `~/.usectl/config.json` and contains:
 ```json
 {
   "token": "your-jwt-token",
-  "api_url": "https://usectl.com"
+  "api_url": "https://manager.usectl.com"
 }
 ```
 
