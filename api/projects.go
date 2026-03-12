@@ -22,16 +22,17 @@ type Project struct {
 }
 
 type CreateProjectRequest struct {
-	Name           string `json:"name"`
-	RepoURL        string `json:"repo_url"`
-	Branch         string `json:"branch"`
-	Domain         string `json:"domain"`
-	ProjectType    string `json:"project_type"`
-	Port           int    `json:"port"`
-	NeedsDB        bool   `json:"needs_db"`
-	NeedsS3        bool   `json:"needs_s3"`
-	GithubToken    string `json:"github_token,omitempty"`
-	InstallationID *int64 `json:"installation_id,omitempty"`
+	Name           string   `json:"name"`
+	RepoURL        string   `json:"repo_url"`
+	Branch         string   `json:"branch"`
+	Domain         string   `json:"domain"`
+	ProjectType    string   `json:"project_type"`
+	Port           int      `json:"port"`
+	NeedsDB        bool     `json:"needs_db"`
+	NeedsS3        bool     `json:"needs_s3"`
+	GithubToken    string   `json:"github_token,omitempty"`
+	InstallationID *int64   `json:"installation_id,omitempty"`
+	Addons         []string `json:"addons,omitempty"`
 }
 
 type UpdateProjectRequest struct {

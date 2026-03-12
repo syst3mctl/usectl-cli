@@ -154,6 +154,7 @@ var (
 	createS3        bool
 	createGHToken   string
 	createInstallID int64
+	createAddons    []string
 )
 
 var projectsCreateCmd = &cobra.Command{
@@ -202,6 +203,22 @@ and injects an appropriate Dockerfile if none exists.`,
 			}
 		}
 
+		// Build addons list from --addon flags and legacy --db/--s3.
+		allAddons := make(map[string]bool)
+		for _, a := range createAddons {
+			allAddons[a] = true
+		}
+		if createDB {
+			allAddons["database"] = true
+		}
+		if createS3 {
+			allAddons["s3"] = true
+		}
+		var addonsList []string
+		for a := range allAddons {
+			addonsList = append(addonsList, a)
+		}
+
 		req := api.CreateProjectRequest{
 			Name:        createName,
 			RepoURL:     createRepo,
@@ -209,9 +226,10 @@ and injects an appropriate Dockerfile if none exists.`,
 			Domain:      createDomain,
 			ProjectType: createType,
 			Port:        createPort,
-			NeedsDB:     createDB,
-			NeedsS3:     createS3,
+			NeedsDB:     createDB || allAddons["database"],
+			NeedsS3:     createS3 || allAddons["s3"],
 			GithubToken: createGHToken,
+			Addons:      addonsList,
 		}
 		if createInstallID > 0 {
 			req.InstallationID = &createInstallID
@@ -525,6 +543,7 @@ func init() {
 	projectsCreateCmd.Flags().IntVar(&createPort, "port", 80, "Container port")
 	projectsCreateCmd.Flags().BoolVar(&createDB, "db", false, "Provision a PostgreSQL database")
 	projectsCreateCmd.Flags().BoolVar(&createS3, "s3", false, "Provision S3 object storage (MinIO)")
+	projectsCreateCmd.Flags().StringSliceVar(&createAddons, "addon", nil, "Add addon by type (database, s3, redis, nats). Can be repeated")
 	projectsCreateCmd.Flags().StringVar(&createGHToken, "github-token", "", "GitHub token for private repos")
 	projectsCreateCmd.Flags().Int64Var(&createInstallID, "installation-id", 0, "GitHub App installation ID (from 'usectl github installations')")
 	projectsCreateCmd.MarkFlagRequired("name")
