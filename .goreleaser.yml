@@ -48,8 +48,7 @@ changelog:
 homebrew_casks:
   - repository:
       owner: syst3mctl
-      name: homebrew-usectl
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      name: usectl-cli
     homepage: "https://usectl.com"
     description: "CLI for the usectl self-hosted deployment platform"
     license: "MIT"

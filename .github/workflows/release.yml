@@ -34,5 +34,55 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+
+  aur-publish:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Download checksums
+        run: |
+          curl -sL "https://github.com/syst3mctl/usectl-cli/releases/download/v${{ steps.version.outputs.VERSION }}/checksums.txt" -o checksums.txt
+          echo "AMD64_SHA=$(grep linux_amd64 checksums.txt | awk '{print $1}')" >> $GITHUB_ENV
+          echo "ARM64_SHA=$(grep linux_arm64 checksums.txt | awk '{print $1}')" >> $GITHUB_ENV
+
+      - name: Generate PKGBUILD
+        run: |
+          cat > PKGBUILD << 'HEREDOC'
+          # Maintainer: syst3mctl <support@usectl.com>
+          pkgname=usectl
+          pkgver=${{ steps.version.outputs.VERSION }}
+          pkgrel=1
+          pkgdesc="CLI for the usectl self-hosted deployment platform"
+          arch=('x86_64' 'aarch64')
+          url="https://github.com/syst3mctl/usectl-cli"
+          license=('MIT')
+          depends=('glibc')
+          source_x86_64=("${url}/releases/download/v${pkgver}/usectl_${pkgver}_linux_amd64.tar.gz")
+          source_aarch64=("${url}/releases/download/v${pkgver}/usectl_${pkgver}_linux_arm64.tar.gz")
+          sha256sums_x86_64=('${{ env.AMD64_SHA }}')
+          sha256sums_aarch64=('${{ env.ARM64_SHA }}')
+          package() {
+            install -Dm755 usectl "$pkgdir/usr/bin/usectl"
+          }
+          HEREDOC
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' PKGBUILD
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v4
+        with:
+          pkgname: usectl
+          pkgbuild: ./PKGBUILD
+          commit_username: syst3mctl
+          commit_email: support@usectl.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to ${{ steps.version.outputs.VERSION }}"
+
