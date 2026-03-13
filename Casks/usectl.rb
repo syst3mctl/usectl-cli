@@ -14,22 +14,22 @@ cask "usectl" do
   on_macos do
     on_intel do
       url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_darwin_amd64.tar.gz"
-      sha256 "1a38808684bfdacc65d8d9ee156e8a1732a102ee8a0b7c37d12b3059b96fee3d"
+      sha256 "b1c91e184f9b3d7e603a4d2f00d330ddae4e14aac7c654619fa5fb526ca87c8b"
     end
     on_arm do
       url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_darwin_arm64.tar.gz"
-      sha256 "3bda44bf86251cc0b41328c5445f59c0163ad4de6fcd84682b6571248cfbf8ff"
+      sha256 "1cef12c0dd128cd44ca47dd6505a28cdc0fec38180ca13260ac43f2162ffdb1d"
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_linux_amd64.tar.gz"
-      sha256 "acaa2ce5adee7c0bed9b3a7204476bdb7230d6761cad14b36ad502f4320306bc"
+      sha256 "568e9a330196d057b96c74b86cfd1127007f7a060f3818fa33683814ee9d2efb"
     end
     on_arm do
       url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_linux_arm64.tar.gz"
-      sha256 "54dfcff23d184362563e50a99452cac4da1a82947b6322134eb027cbe4a36339"
+      sha256 "0a7c9a85968a6d563cab53f06dbae8414a52e91da3eb8322433520e1e85619f9"
     end
   end
 
