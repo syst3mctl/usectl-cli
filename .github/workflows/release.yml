@@ -43,6 +43,9 @@ jobs:
       matrix:
         arch: [amd64, arm64]
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Extract version
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
