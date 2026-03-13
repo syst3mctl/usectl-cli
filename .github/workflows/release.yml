@@ -120,6 +120,73 @@ jobs:
           gh release upload "v${{ steps.version.outputs.VERSION }}" \
             "${{ env.ARCHIVE }}" --clobber
 
+  update-homebrew:
+    needs: macos-sign
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Download signed archives and compute checksums
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          for ARCH in amd64 arm64; do
+            curl -sL -o "usectl_${VERSION}_darwin_${ARCH}.tar.gz" \
+              "https://github.com/syst3mctl/usectl-cli/releases/download/v${VERSION}/usectl_${VERSION}_darwin_${ARCH}.tar.gz"
+          done
+          echo "SHA_AMD64=$(sha256sum usectl_${VERSION}_darwin_amd64.tar.gz | awk '{print $1}')" >> $GITHUB_ENV
+          echo "SHA_ARM64=$(sha256sum usectl_${VERSION}_darwin_arm64.tar.gz | awk '{print $1}')" >> $GITHUB_ENV
+
+      - name: Update Homebrew cask
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          mkdir -p Casks
+          cat > Casks/usectl.rb << EOF
+          cask "usectl" do
+            name "usectl"
+            desc "CLI for the usectl self-hosted deployment platform"
+            homepage "https://usectl.com"
+            version "${VERSION}"
+
+            binary "usectl"
+
+            on_macos do
+              on_intel do
+                url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_darwin_amd64.tar.gz"
+                sha256 "${SHA_AMD64}"
+              end
+              on_arm do
+                url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_darwin_arm64.tar.gz"
+                sha256 "${SHA_ARM64}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_linux_amd64.tar.gz"
+              end
+              on_arm do
+                url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_linux_arm64.tar.gz"
+              end
+            end
+          end
+          EOF
+          sed -i 's/^          //' Casks/usectl.rb
+
+      - name: Commit updated cask
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/usectl.rb
+          git commit -m "chore: update Homebrew cask checksums for v${{ steps.version.outputs.VERSION }}"
+          git push
+
   aur-publish:
     needs: release
     runs-on: ubuntu-latest
