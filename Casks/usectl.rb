@@ -3,7 +3,7 @@ cask "usectl" do
   name "usectl"
   desc "CLI for the usectl self-hosted deployment platform"
   homepage "https://usectl.com"
-  version "1.0.3"
+  version "1.0.4"
 
   livecheck do
     skip "Auto-generated on release."
@@ -14,22 +14,22 @@ cask "usectl" do
   on_macos do
     on_intel do
       url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_darwin_amd64.tar.gz"
-      sha256 "6231691897e42e9f097a3a32a1b862cbbef4efef3d5babf6938f748e35464977"
+      sha256 "1a38808684bfdacc65d8d9ee156e8a1732a102ee8a0b7c37d12b3059b96fee3d"
     end
     on_arm do
       url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_darwin_arm64.tar.gz"
-      sha256 "e428d8ca9a3d706a179dd34968ab5d72cb3179b679ca20ad5e561f861138fed1"
+      sha256 "3bda44bf86251cc0b41328c5445f59c0163ad4de6fcd84682b6571248cfbf8ff"
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_linux_amd64.tar.gz"
-      sha256 "b2b48c890cb86285ef6a8f4fa1fcee30c8fa6b93a5c1df2bd5019af0299e5dab"
+      sha256 "acaa2ce5adee7c0bed9b3a7204476bdb7230d6761cad14b36ad502f4320306bc"
     end
     on_arm do
       url "https://github.com/syst3mctl/usectl-cli/releases/download/v#{version}/usectl_#{version}_linux_arm64.tar.gz"
-      sha256 "7c14a297a4d089786ee872e8c17f0182d3429139c15dad4dbca327d66baf6c85"
+      sha256 "54dfcff23d184362563e50a99452cac4da1a82947b6322134eb027cbe4a36339"
     end
   end
 
