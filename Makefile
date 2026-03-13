@@ -2,7 +2,7 @@ BINARY_NAME = usectl
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_DIR = dist
 
-LDFLAGS = -s -w -X main.Version=$(VERSION)
+LDFLAGS = -s -w -X github.com/giorgi/usectl/cmd.Version=$(VERSION)
 
 .PHONY: build clean release install
 

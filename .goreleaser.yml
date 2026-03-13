@@ -1,0 +1,82 @@
+version: 2
+
+project_name: usectl
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: usectl
+    main: .
+    binary: usectl
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/giorgi/usectl/cmd.Version={{.Version}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+homebrew_casks:
+  - repository:
+      owner: syst3mctl
+      name: homebrew-usectl
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://usectl.com"
+    description: "CLI for the usectl self-hosted deployment platform"
+    license: "MIT"
+
+snapcrafts:
+  - id: usectl
+    name: usectl
+    publish: true
+    summary: "CLI for the usectl self-hosted deployment platform"
+    description: |
+      usectl is the CLI for the usectl.com platform — a self-hosted Vercel
+      alternative running on K3s. It provides full lifecycle management for
+      your applications including deployment, monitoring, and organization
+      management.
+    grade: stable
+    confinement: strict
+    license: MIT
+    apps:
+      usectl:
+        command: usectl
+        plugs:
+          - network
+          - home
+
+release:
+  github:
+    owner: syst3mctl
+    name: usectl-cli
+  prerelease: auto
+  name_template: "v{{.Version}}"
