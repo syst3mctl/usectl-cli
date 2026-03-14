@@ -26,6 +26,7 @@ Command Groups:
   login/register  Authenticate with the platform
   profile         View and update your user profile
   projects        Create, deploy, update, delete, and monitor projects
+  billing         Manage your subscription and payment
   github          GitHub App integration (OAuth, repos, branches)
 
 All commands support --json for machine-readable output, making the CLI
