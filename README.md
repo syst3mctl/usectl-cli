@@ -1,29 +1,33 @@
 # usectl
 
-**Command-line interface for the K-Deploy platform.**
+**Command-line interface for the [usectl.com](https://usectl.com) platform.**
 
-Manage projects, deployments, domains, and more on your K-Deploy cluster from the terminal.
-
----
+Manage projects, deployments, organizations, domains, and more from the terminal.
 
 ## Installation
 
-### Quick Install (Linux)
+### Homebrew (macOS & Linux)
 
 ```bash
-curl -fsSL https://manager.usectl.com/install.sh | bash
+brew install --cask syst3mctl/usectl-cli/usectl
 ```
 
-This downloads the latest `usectl` binary to `/usr/local/bin`.
-
-### Manual Install
-
-Download the binary from [releases](https://manager.usectl.com/releases/latest), make it executable, and move it to your PATH:
+### Snap Store (Ubuntu & Linux)
 
 ```bash
-curl -fsSL -o usectl https://manager.usectl.com/releases/latest/usectl-linux-amd64
-chmod +x usectl
-sudo mv usectl /usr/local/bin/
+snap install usectl
+```
+
+### AUR (Arch Linux)
+
+```bash
+yay -S usectl
+```
+
+### Quick Install Script
+
+```bash
+curl -fsSL https://usectl.com/install.sh | bash
 ```
 
 ### Build from Source
@@ -42,17 +46,22 @@ sudo mv usectl /usr/local/bin/
 ## Quick Start
 
 ```bash
-# Create an account
-usectl register
-
-# Or log in to an existing one
+# Log in
 usectl login
 
-# List your projects
-usectl projects list
+# Connect GitHub
+usectl github login
 
-# Deploy a project
-usectl projects deploy <project-id>
+# Create a project
+usectl projects create --name my-app \
+  --repo https://github.com/user/repo \
+  --domain my-app --port 3000
+
+# Deploy
+usectl projects deploy <id>
+
+# View logs
+usectl projects logs <id>
 ```
 
 ---
@@ -84,22 +93,53 @@ usectl projects deploy <project-id>
 | `usectl projects stop <id>` | Stop a project (scale to 0) |
 | `usectl projects start <id>` | Start a project (scale to 1) |
 
-**Aliases:** `projects` → `project`, `p`  
-**Aliases:** `list` → `ls`
+**Aliases:** `projects` → `project`, `p` · `list` → `ls`
 
 #### Create Flags
 
 ```
---name        Project name
---repo        Git repository URL
---branch      Git branch (default: master)
---domain      Subdomain (e.g. "myapp" → myapp.usectl.com)
---type        Project type: static or service
---port        Container port (for service type)
---db          Provision a PostgreSQL database
---s3          Provision S3 storage
---gh-token    GitHub personal access token (for private repos)
+--name          Project name (required)
+--repo          Git repository URL (required)
+--domain        Subdomain (required)
+--branch        Git branch (default: main)
+--type          Project type: static or service (default: service)
+--port          Container port (default: 80)
+--db            Provision a PostgreSQL database
+--s3            Provision S3 storage (MinIO)
+--addon         Add addon: database, s3, redis, nats (repeatable)
+--installation-id  GitHub App installation ID
 ```
+
+### Organizations
+
+| Command | Description |
+|---|---|
+| `usectl orgs list` | List your organizations |
+| `usectl orgs get <id>` | Get organization details |
+| `usectl orgs create --name "Name"` | Create an organization |
+| `usectl orgs update <id>` | Update name or description |
+| `usectl orgs delete <id>` | Delete an organization |
+| `usectl orgs projects <id>` | List organization projects |
+
+**Members:**
+
+| Command | Description |
+|---|---|
+| `usectl orgs members list <org-id>` | List members |
+| `usectl orgs members set-role <org-id> <user-id> --role <role>` | Change role |
+| `usectl orgs members remove <org-id> <user-id>` | Remove member |
+
+**Invitations:**
+
+| Command | Description |
+|---|---|
+| `usectl orgs invite list <org-id>` | List pending invitations |
+| `usectl orgs invite create <org-id> --email <email>` | Invite a user |
+| `usectl orgs invite info <token>` | View invitation details |
+| `usectl orgs invite accept <token>` | Accept an invitation |
+| `usectl orgs invite revoke <org-id> <invitation-id>` | Revoke invitation |
+
+**Roles:** `owner`, `admin`, `member`, `viewer`
 
 ### Domains
 
@@ -108,10 +148,17 @@ usectl projects deploy <project-id>
 | `usectl domains list` | List all domains |
 | `usectl domains get <id>` | Show domain details |
 | `usectl domains create <domain>` | Register a custom domain |
-| `usectl domains attach <domain-id> --project <project-id>` | Attach domain to project |
+| `usectl domains attach <domain-id> --project <project-id>` | Attach to project |
 | `usectl domains delete <id>` | Delete a domain |
 
-**Aliases:** `domains` → `domain`, `d`
+### GitHub Integration
+
+| Command | Description |
+|---|---|
+| `usectl github login` | Connect GitHub via OAuth |
+| `usectl github installations` | List GitHub App installations |
+| `usectl github repos <installation-id>` | List accessible repos |
+| `usectl github branches <installation-id> <owner/repo>` | List branches |
 
 ### Admin (requires admin role)
 
@@ -129,62 +176,30 @@ usectl projects deploy <project-id>
 |---|---|
 | `usectl mcp config` | Print Claude Desktop MCP configuration JSON |
 
-Paste the output into your Claude Desktop `claude_desktop_config.json` to connect Claude to your K-Deploy cluster.
-
 ---
 
 ## Global Flags
 
 ```
---api-url    Override the API base URL (default: https://manager.usectl.com)
---json       Output in JSON format
+--api-url    Override the API base URL (default: from config or https://usectl.com)
+--json       Output in JSON format (for scripting and AI agents)
+--version    Show version
 ```
 
 ---
 
 ## Configuration
 
-Config is stored at `~/.usectl/config.json` and contains:
+Config is stored at `~/.usectl/config.json`:
 
 ```json
 {
   "token": "your-jwt-token",
-  "api_url": "https://manager.usectl.com"
+  "api_url": "https://usectl.com"
 }
 ```
 
-This file is created automatically on `usectl login`.
-
----
-
-## Examples
-
-```bash
-# Create a static site from a GitHub repo
-usectl projects create \
-  --name "my-site" \
-  --repo "https://github.com/user/my-site.git" \
-  --domain "my-site" \
-  --type static
-
-# Create a service with a database
-usectl projects create \
-  --name "my-api" \
-  --repo "https://github.com/user/my-api.git" \
-  --domain "api" \
-  --type service \
-  --port 8080 \
-  --db
-
-# Check logs of a running project
-usectl projects logs 97b4acce --lines 100
-
-# Get JSON output for scripting
-usectl projects list --json | jq '.[].name'
-
-# Connect to a self-hosted cluster
-usectl login --api-url https://my-cluster.example.com
-```
+Created automatically on `usectl login`.
 
 ---
 
