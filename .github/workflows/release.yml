@@ -140,7 +140,7 @@ jobs:
 
       - name: Clone tap repo
         run: |
-          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/syst3mctl/homebrew-usectl-cli.git tap
+          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}@github.com/syst3mctl/homebrew-usectl-cli.git tap
           cd tap
 
       - name: Update Homebrew cask
