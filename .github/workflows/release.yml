@@ -124,11 +124,6 @@ jobs:
     needs: macos-sign
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: master
-
       - name: Extract version
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
@@ -143,11 +138,17 @@ jobs:
           echo "SHA_AMD64=$(sha256sum usectl_${VERSION}_darwin_amd64.tar.gz | awk '{print $1}')" >> $GITHUB_ENV
           echo "SHA_ARM64=$(sha256sum usectl_${VERSION}_darwin_arm64.tar.gz | awk '{print $1}')" >> $GITHUB_ENV
 
+      - name: Clone tap repo
+        run: |
+          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/syst3mctl/homebrew-usectl-cli.git tap
+          cd tap
+
       - name: Update Homebrew cask
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
+          cd tap
           mkdir -p Casks
-          cat > Casks/usectl.rb << EOF
+          cat > Casks/usectl.rb <<EOF
           cask "usectl" do
             name "usectl"
             desc "CLI for the usectl self-hosted deployment platform"
@@ -179,13 +180,13 @@ jobs:
           EOF
           sed -i 's/^          //' Casks/usectl.rb
 
-      - name: Commit updated cask
+      - name: Push updated cask to tap repo
         run: |
+          cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/usectl.rb
-          git commit -m "chore: update Homebrew cask checksums for v${{ steps.version.outputs.VERSION }}"
-          git push
+          git diff --cached --quiet || (git commit -m "Update usectl to v${{ steps.version.outputs.VERSION }}" && git push)
 
   aur-publish:
     needs: release
