@@ -23,18 +23,20 @@ Each project gets its own Kubernetes namespace, optional PostgreSQL database,
 and optional S3 storage bucket (MinIO).
 
 Subcommands:
-  list        List all projects with status and features
-  get         Show detailed project info including deployments
-  create      Create a new project from a GitHub repository
-  update      Modify project settings (domain, branch, port)
-  delete      Delete a project and all its resources (namespace, DB, S3)
-  deploy      Trigger a new build and deployment
-  start/stop  Scale the project's containers up or down
-  status      Check if the project's containers are running
-  logs        View live runtime logs from the application
-  build-logs  View build and deploy logs for a specific deployment
-  stats       View CPU, memory, and network usage metrics
-  s3          Manage S3 object storage for the project`,
+  list         List all projects with status and features
+  get          Show detailed project info including deployments
+  create       Create a new project from a GitHub repository
+  update       Modify project settings (domain, branch, port)
+  delete       Delete a project and all its resources (namespace, DB, S3)
+  deploy       Trigger a new build and deployment
+  deployments  List all deployments for a project
+  rollback     Roll back to a previous deployment
+  start/stop   Scale the project's containers up or down
+  status       Check if the project's containers are running
+  logs         View live runtime logs from the application
+  build-logs   View build and deploy logs for a specific deployment
+  stats        View CPU, memory, and network usage metrics
+  s3           Manage S3 object storage for the project`,
 }
 
 var projectsListCmd = &cobra.Command{
@@ -94,8 +96,10 @@ var projectsGetCmd = &cobra.Command{
 	Use:   "get <id>",
 	Short: "Get detailed project information including database and S3 status",
 	Long: `Returns detailed information about a single project, including repo URL,
-branch, domain, port, database provisioning status, S3 bucket status, and
-creation date. The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
+branch, domain, port, database provisioning status, S3 bucket status,
+creation date, and recent deployment history.
+
+The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
 	Example: `  usectl projects get a8f15889
   usectl projects get a8f15889-3636-402d-99a1-3492ba6b4383 --json`,
 	Args: cobra.ExactArgs(1),
@@ -104,15 +108,16 @@ creation date. The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
 		if err != nil {
 			return err
 		}
-		project, err := client.GetProject(args[0])
+		resp, err := client.GetProjectFull(args[0])
 		if err != nil {
 			return err
 		}
 
 		if jsonOutput {
-			return output.JSON(project)
+			return output.JSON(resp)
 		}
 
+		project := resp.Project
 		dbStatus := "no"
 		if project.NeedsDB {
 			dbStatus = "yes"
@@ -144,6 +149,29 @@ creation date. The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
 			{"Object Storage", s3Status},
 			{"Created", project.CreatedAt},
 		})
+
+		// Show recent deployments.
+		if len(resp.Deployments) > 0 {
+			fmt.Println()
+			fmt.Println("Recent Deployments:")
+			limit := len(resp.Deployments)
+			if limit > 5 {
+				limit = 5
+			}
+			rows := make([][]string, limit)
+			for i := 0; i < limit; i++ {
+				d := resp.Deployments[i]
+				commit := d.CommitHash
+				if len(commit) > 7 {
+					commit = commit[:7]
+				}
+				rows[i] = []string{d.ID, d.Status, commit, d.CreatedAt}
+			}
+			output.Table([]string{"DEPLOYMENT ID", "STATUS", "COMMIT", "CREATED"}, rows)
+			if len(resp.Deployments) > 5 {
+				fmt.Printf("  ... and %d more. Use 'usectl projects deployments %s' to see all.\n", len(resp.Deployments)-5, args[0])
+			}
+		}
 		return nil
 	},
 }
@@ -446,6 +474,109 @@ specific deployment. Use 'usectl projects get <id>' to see deployment IDs.`,
 	},
 }
 
+var projectsDeploymentsCmd = &cobra.Command{
+	Use:     "deployments <project-id>",
+	Aliases: []string{"deps"},
+	Short:   "List all deployments for a project",
+	Long: `Returns a table of all deployments for the given project, ordered from
+newest to oldest. Shows deployment ID, status, commit hash, and creation date.
+
+Use the deployment ID with 'usectl projects build-logs' to view build logs,
+or with 'usectl projects rollback' to roll back to a previous deployment.`,
+	Example: `  usectl projects deployments a8f15889
+  usectl projects deployments a8f15889 --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		resp, err := client.GetProjectFull(args[0])
+		if err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			return output.JSON(resp.Deployments)
+		}
+
+		if len(resp.Deployments) == 0 {
+			fmt.Println("No deployments found for this project.")
+			return nil
+		}
+
+		rows := make([][]string, len(resp.Deployments))
+		for i, d := range resp.Deployments {
+			commit := d.CommitHash
+			if len(commit) > 7 {
+				commit = commit[:7]
+			}
+			rows[i] = []string{d.ID, d.Status, commit, d.CreatedAt}
+		}
+		output.Table([]string{"ID", "STATUS", "COMMIT", "CREATED"}, rows)
+		fmt.Printf("\nTotal: %d deployments\n", len(resp.Deployments))
+		fmt.Println("\nHint: Use 'usectl projects build-logs <project-id> <deployment-id>' to view logs.")
+		fmt.Println("      Use 'usectl projects rollback <project-id> <deployment-id>' to roll back.")
+		return nil
+	},
+}
+
+var projectsRollbackCmd = &cobra.Command{
+	Use:   "rollback <project-id> <deployment-id>",
+	Short: "Roll back to a previous deployment (redeploy its container image)",
+	Long: `Roll back a project to a previously successful deployment by redeploying
+its container image without rebuilding. This is useful to quickly recover from
+a bad deployment.
+
+The deployment-id should reference an existing deployment. Use
+'usectl projects deployments <project-id>' to see available deployments.`,
+	Example: `  usectl projects rollback a8f15889 d4e5f6a7`,
+	Args:    cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+
+		// Fetch the full project to find the target deployment's commit hash.
+		resp, err := client.GetProjectFull(args[0])
+		if err != nil {
+			return err
+		}
+
+		var targetCommit string
+		var targetStatus string
+		for _, d := range resp.Deployments {
+			if d.ID == args[1] || strings.HasPrefix(d.ID, args[1]) {
+				targetCommit = d.CommitHash
+				targetStatus = d.Status
+				break
+			}
+		}
+		if targetCommit == "" {
+			return fmt.Errorf("deployment %s not found in project %s", args[1], args[0])
+		}
+
+		if targetStatus != "deployed" && targetStatus != "running" {
+			fmt.Printf("⚠ Warning: target deployment status is '%s' (not 'deployed'). Proceeding anyway.\n", targetStatus)
+		}
+
+		shortCommit := targetCommit
+		if len(shortCommit) > 7 {
+			shortCommit = shortCommit[:7]
+		}
+		fmt.Printf("Rolling back to commit %s...\n", shortCommit)
+
+		if err := client.RollbackProject(args[0], targetCommit); err != nil {
+			return fmt.Errorf("rollback failed: %w", err)
+		}
+
+		fmt.Printf("✓ Rollback triggered. Redeploying image from commit %s (skip build).\n", shortCommit)
+		fmt.Println("  Use 'usectl projects logs <project-id>' to monitor.")
+		return nil
+	},
+}
+
 var projectsStartCmd = &cobra.Command{
 	Use:     "start <id>",
 	Short:   "Start a stopped project (scale replicas to 1)",
@@ -588,6 +719,8 @@ func init() {
 	projectsCmd.AddCommand(projectsDeployCmd)
 	projectsCmd.AddCommand(projectsLogsCmd)
 	projectsCmd.AddCommand(projectsBuildLogsCmd)
+	projectsCmd.AddCommand(projectsDeploymentsCmd)
+	projectsCmd.AddCommand(projectsRollbackCmd)
 	projectsCmd.AddCommand(projectsStartCmd)
 	projectsCmd.AddCommand(projectsStopCmd)
 	projectsCmd.AddCommand(projectsStatusCmd)

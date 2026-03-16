@@ -198,3 +198,30 @@ func (c *Client) GetDeploymentLogs(projectID, deploymentID string) (*DeploymentL
 	err := c.Get(fmt.Sprintf("/api/projects/%s/deployments/%s/logs", projectID, deploymentID), &logs)
 	return &logs, err
 }
+
+// ProjectFullResponse is the full response from GET /api/projects/{id}
+// which includes the project, latest deployment, and all deployments.
+type ProjectFullResponse struct {
+	Project          Project      `json:"project"`
+	LatestDeployment *Deployment  `json:"latest_deployment,omitempty"`
+	Deployments      []Deployment `json:"deployments"`
+}
+
+func (c *Client) GetProjectFull(id string) (*ProjectFullResponse, error) {
+	var resp ProjectFullResponse
+	err := c.Get(fmt.Sprintf("/api/projects/%s", id), &resp)
+	return &resp, err
+}
+
+type RollbackRequest struct {
+	CommitHash string `json:"commit_hash"`
+	SkipBuild  bool   `json:"skip_build"`
+}
+
+func (c *Client) RollbackProject(projectID, commitHash string) error {
+	req := RollbackRequest{
+		CommitHash: commitHash,
+		SkipBuild:  true,
+	}
+	return c.Post(fmt.Sprintf("/api/projects/%s/deploy", projectID), req, nil)
+}
