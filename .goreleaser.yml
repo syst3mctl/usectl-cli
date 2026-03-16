@@ -45,20 +45,6 @@ changelog:
       - "^ci:"
       - "^chore:"
 
-homebrew_casks:
-  - repository:
-      owner: syst3mctl
-      name: homebrew-usectl-cli
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
-    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
-    directory: Casks
-    homepage: "https://usectl.com"
-    description: "CLI for the usectl self-hosted deployment platform"
-    license: "MIT"
-
 snapcrafts:
   - id: usectl
     name: usectl
