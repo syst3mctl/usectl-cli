@@ -1,6 +1,10 @@
 package api
 
-import "fmt"
+import (
+	"fmt"
+	"io"
+	"net/http"
+)
 
 // ========== Projects ==========
 
@@ -159,6 +163,34 @@ func (c *Client) GetRuntimeLogs(id string, lines int) (*LogsResponse, error) {
 	}
 	err := c.Get(path, &logs)
 	return &logs, err
+}
+
+// StreamRuntimeLogs follows logs in real-time (like docker logs -f).
+func (c *Client) StreamRuntimeLogs(id string, lines int, writer io.Writer) error {
+	path := fmt.Sprintf("/api/projects/%s/runtime-logs?follow=true", id)
+	if lines > 0 {
+		path = fmt.Sprintf("%s&lines=%d", path, lines)
+	}
+
+	req, err := http.NewRequest("GET", c.BaseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	_, err = io.Copy(writer, resp.Body)
+	return err
 }
 
 func (c *Client) GetDeploymentLogs(projectID, deploymentID string) (*DeploymentLogsResponse, error) {

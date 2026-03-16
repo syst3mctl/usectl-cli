@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/giorgi/usectl/api"
 	"github.com/giorgi/usectl/config"
@@ -126,12 +128,16 @@ creation date. The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
 			}
 		}
 
+		displayDomain := project.Domain + ".usectl.com"
+		if strings.Contains(project.Domain, ".") {
+			displayDomain = project.Domain
+		}
 		output.Table([]string{"FIELD", "VALUE"}, [][]string{
 			{"ID", project.ID},
 			{"Name", project.Name},
 			{"Repo", project.RepoURL},
 			{"Branch", project.Branch},
-			{"Domain", project.Domain + ".usectl.com"},
+			{"Domain", displayDomain},
 			{"Type", project.ProjectType},
 			{"Port", strconv.Itoa(project.Port)},
 			{"Database", dbStatus},
@@ -368,20 +374,31 @@ The build runs asynchronously. Use 'usectl projects logs <id>' or
 }
 
 var logsLines int
+var logsFollow bool
 
 var projectsLogsCmd = &cobra.Command{
 	Use:   "logs <id>",
 	Short: "View live runtime logs from the running application containers",
 	Long: `Fetch the latest log output from the project's running pods.
-Use --tail to control how many lines to retrieve (default: 100).`,
+Use --tail to control how many lines to retrieve (default: 100).
+Use -f / --follow to stream logs in real-time (like docker logs -f).`,
 	Example: `  usectl projects logs a8f15889
-  usectl projects logs a8f15889 --tail 500`,
+  usectl projects logs a8f15889 --tail 500
+  usectl projects logs a8f15889 -f
+  usectl projects logs a8f15889 --follow --tail 50`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
+
+		// Follow mode: stream to stdout.
+		if logsFollow {
+			return client.StreamRuntimeLogs(args[0], logsLines, os.Stdout)
+		}
+
+		// Normal mode: fetch and print.
 		logs, err := client.GetRuntimeLogs(args[0], logsLines)
 		if err != nil {
 			return err
@@ -560,6 +577,7 @@ func init() {
 
 	// Logs flags
 	projectsLogsCmd.Flags().IntVar(&logsLines, "tail", 100, "Number of log lines")
+	projectsLogsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "Follow log output in real-time")
 
 	// Wire subcommands
 	projectsCmd.AddCommand(projectsListCmd)
