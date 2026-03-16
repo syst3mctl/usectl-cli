@@ -462,13 +462,10 @@ specific deployment. Use 'usectl projects get <id>' to see deployment IDs.`,
 			return output.JSON(logs)
 		}
 
-		if logs.BuildLog != "" {
-			fmt.Println("=== Build Log ===")
-			fmt.Println(logs.BuildLog)
-		}
-		if logs.DeployLog != "" {
-			fmt.Println("=== Deploy Log ===")
-			fmt.Println(logs.DeployLog)
+		if logs.Log != "" {
+			fmt.Println(logs.Log)
+		} else {
+			fmt.Println("(no logs available)")
 		}
 		return nil
 	},

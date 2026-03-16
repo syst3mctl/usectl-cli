@@ -97,8 +97,7 @@ type LogsResponse struct {
 }
 
 type DeploymentLogsResponse struct {
-	BuildLog  string `json:"build_log"`
-	DeployLog string `json:"deploy_log"`
+	Log string `json:"log"`
 }
 
 func (c *Client) ListProjects() ([]ProjectWithDeployment, error) {
