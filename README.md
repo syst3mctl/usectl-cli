@@ -27,7 +27,7 @@ yay -S usectl
 ### Quick Install Script
 
 ```bash
-curl -fsSL https://usectl.com/install.sh | bash
+curl -fsSL https://manager.usectl.com/install.sh | bash
 ```
 
 ### Build from Source
