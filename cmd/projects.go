@@ -81,7 +81,7 @@ Use --json for structured output suitable for scripting or AI agents.`,
 			if pw.LatestDeployment != nil {
 				status = pw.LatestDeployment.Status
 			}
-			rows[i] = []string{p.ID[:8], p.Name, p.Domain, p.ProjectType, status, features, p.Branch}
+			rows[i] = []string{p.ID, p.Name, p.Domain, p.ProjectType, status, features, p.Branch}
 		}
 		output.Table([]string{"ID", "NAME", "DOMAIN", "TYPE", "STATUS", "FEATURES", "BRANCH"}, rows)
 		return nil
