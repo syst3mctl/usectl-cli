@@ -189,6 +189,7 @@ var (
 	createGHToken   string
 	createInstallID int64
 	createAddons    []string
+	createEnvs      []string
 )
 
 var projectsCreateCmd = &cobra.Command{
@@ -214,6 +215,10 @@ and injects an appropriate Dockerfile if none exists.`,
   # Full-featured with database and S3
   usectl projects create --name my-app --repo https://github.com/user/app \\
     --domain my-app --type service --branch main --port 8080 --db --s3
+
+  # With custom environment variables
+  usectl projects create --name my-api --repo https://github.com/user/api \\
+    --domain my-api --port 3000 --env API_KEY=sk-123 --env NODE_ENV=production
 
   # Static site
   usectl projects create --name docs --repo https://github.com/user/docs \\
@@ -280,6 +285,25 @@ and injects an appropriate Dockerfile if none exists.`,
 
 		fmt.Printf("✓ Project created: %s (ID: %s)\n", project.Name, project.ID)
 		fmt.Printf("  Domain: %s.usectl.com\n", project.Domain)
+
+		// Set custom env vars if --env was provided.
+		if len(createEnvs) > 0 {
+			vars := make(map[string]string)
+			for _, e := range createEnvs {
+				parts := strings.SplitN(e, "=", 2)
+				if len(parts) == 2 {
+					vars[parts[0]] = parts[1]
+				}
+			}
+			if len(vars) > 0 {
+				if err := client.SetEnvs(project.ID, vars); err != nil {
+					fmt.Printf("  ⚠ Warning: failed to set env vars: %v\n", err)
+				} else {
+					fmt.Printf("  ✓ Set %d environment variable(s)\n", len(vars))
+				}
+			}
+		}
+
 		return nil
 	},
 }
@@ -691,6 +715,7 @@ func init() {
 	projectsCreateCmd.Flags().StringSliceVar(&createAddons, "addon", nil, "Add addon by type (database, s3, redis, nats). Can be repeated")
 	projectsCreateCmd.Flags().StringVar(&createGHToken, "github-token", "", "GitHub token for private repos")
 	projectsCreateCmd.Flags().Int64Var(&createInstallID, "installation-id", 0, "GitHub App installation ID (from 'usectl github installations')")
+	projectsCreateCmd.Flags().StringSliceVar(&createEnvs, "env", nil, `Set environment variable (KEY=value). Can be repeated`)
 	projectsCreateCmd.MarkFlagRequired("name")
 	projectsCreateCmd.MarkFlagRequired("repo")
 	projectsCreateCmd.MarkFlagRequired("domain")
