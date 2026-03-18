@@ -26,6 +26,9 @@ Command Groups:
   login/register  Authenticate with the platform
   profile         View and update your user profile
   projects        Create, deploy, update, delete, and monitor projects
+  envs            Manage custom environment variables for a project
+  cron            Manage scheduled cron jobs for a project
+  domains         Manage custom domains
   billing         Manage your subscription and payment
   github          GitHub App integration (OAuth, repos, branches)
 
