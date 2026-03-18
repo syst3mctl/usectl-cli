@@ -179,3 +179,8 @@ func (c *Client) Put(path string, body interface{}, result interface{}) error {
 func (c *Client) Delete(path string, result interface{}) error {
 	return c.do(http.MethodDelete, path, nil, result)
 }
+
+// DeleteWithBody performs a DELETE request with a JSON body.
+func (c *Client) DeleteWithBody(path string, body interface{}, result interface{}) error {
+	return c.do(http.MethodDelete, path, body, result)
+}
