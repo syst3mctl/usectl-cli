@@ -133,6 +133,11 @@ The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
 			}
 		}
 
+		previewEnvs := "no"
+		if project.EnablePreviewEnvs {
+			previewEnvs = "yes"
+		}
+
 		displayDomain := project.Domain + ".usectl.com"
 		if strings.Contains(project.Domain, ".") {
 			displayDomain = project.Domain
@@ -147,6 +152,7 @@ The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
 			{"Port", strconv.Itoa(project.Port)},
 			{"Database", dbStatus},
 			{"Object Storage", s3Status},
+			{"Preview Envs", previewEnvs},
 			{"Created", project.CreatedAt},
 		})
 
@@ -310,12 +316,13 @@ and injects an appropriate Dockerfile if none exists.`,
 
 // Flags for update command
 var (
-	updateName      string
-	updateDomain    string
-	updateBranch    string
-	updatePort      int
-	updateGHToken   string
-	updateInstallID int64
+	updateName        string
+	updateDomain      string
+	updateBranch      string
+	updatePort        int
+	updateGHToken     string
+	updateInstallID   int64
+	updatePreviewEnvs bool
 )
 
 var projectsUpdateCmd = &cobra.Command{
@@ -328,7 +335,9 @@ If --port or --domain is changed, the K8s resources (Deployment, Service,
 IngressRoute) are automatically updated in the background.`,
 	Example: `  usectl projects update a8f15889 --port 3000
   usectl projects update a8f15889 --domain new-domain --branch develop
-  usectl projects update a8f15889 --installation-id 114078944`,
+  usectl projects update a8f15889 --installation-id 114078944
+  usectl projects update a8f15889 --preview-envs       # Enable PR preview environments
+  usectl projects update a8f15889 --preview-envs=false  # Disable PR preview environments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -354,6 +363,9 @@ IngressRoute) are automatically updated in the background.`,
 		}
 		if cmd.Flags().Changed("installation-id") {
 			req.InstallationID = &updateInstallID
+		}
+		if cmd.Flags().Changed("preview-envs") {
+			req.EnablePreviewEnvs = &updatePreviewEnvs
 		}
 
 		project, err := client.UpdateProject(args[0], req)
@@ -702,6 +714,67 @@ var projectsStatsCmd = &cobra.Command{
 	},
 }
 
+var projectsPRsCmd = &cobra.Command{
+	Use:     "prs <project-id>",
+	Aliases: []string{"pr", "previews"},
+	Short:   "List active PR preview deployments for a project",
+	Long: `Returns a table of active pull request preview environments for the given
+project. Each PR preview has its own domain, namespace, and deployment.
+
+Preview environments are automatically created when a PR is opened or updated,
+and cleaned up when the PR is closed or merged.
+
+Enable preview environments with:
+  usectl projects update <id> --preview-envs`,
+	Example: `  usectl projects prs a8f15889
+  usectl projects prs a8f15889 --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		prs, err := client.ListActivePRs(args[0])
+		if err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			return output.JSON(prs)
+		}
+
+		if len(prs) == 0 {
+			fmt.Println("No active PR preview environments.")
+			fmt.Println("\nHint: Enable preview envs with 'usectl projects update <id> --preview-envs'")
+			return nil
+		}
+
+		rows := make([][]string, len(prs))
+		for i, d := range prs {
+			prNum := "-"
+			if d.PRNumber != nil {
+				prNum = fmt.Sprintf("#%d", *d.PRNumber)
+			}
+			prBranch := "-"
+			if d.PRBranch != nil {
+				prBranch = *d.PRBranch
+			}
+			prDomain := "-"
+			if d.PRDomain != nil {
+				prDomain = *d.PRDomain
+			}
+			commit := d.CommitHash
+			if len(commit) > 7 {
+				commit = commit[:7]
+			}
+			rows[i] = []string{prNum, prBranch, prDomain, d.Status, commit, d.CreatedAt}
+		}
+		output.Table([]string{"PR", "BRANCH", "DOMAIN", "STATUS", "COMMIT", "CREATED"}, rows)
+		fmt.Printf("\nTotal: %d active preview(s)\n", len(prs))
+		return nil
+	},
+}
+
 func init() {
 	// Create flags
 	projectsCreateCmd.Flags().StringVar(&createName, "name", "", "Project name (required)")
@@ -727,6 +800,7 @@ func init() {
 	projectsUpdateCmd.Flags().IntVar(&updatePort, "port", 0, "New container port")
 	projectsUpdateCmd.Flags().StringVar(&updateGHToken, "github-token", "", "New GitHub token")
 	projectsUpdateCmd.Flags().Int64Var(&updateInstallID, "installation-id", 0, "GitHub App installation ID")
+	projectsUpdateCmd.Flags().BoolVar(&updatePreviewEnvs, "preview-envs", false, "Enable or disable PR preview environments")
 
 	// Logs flags
 	projectsLogsCmd.Flags().IntVar(&logsLines, "tail", 100, "Number of log lines")
@@ -747,6 +821,7 @@ func init() {
 	projectsCmd.AddCommand(projectsStopCmd)
 	projectsCmd.AddCommand(projectsStatusCmd)
 	projectsCmd.AddCommand(projectsStatsCmd)
+	projectsCmd.AddCommand(projectsPRsCmd)
 
 	rootCmd.AddCommand(projectsCmd)
 }

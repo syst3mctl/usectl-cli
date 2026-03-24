@@ -9,20 +9,21 @@ import (
 // ========== Projects ==========
 
 type Project struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	RepoURL     string  `json:"repo_url"`
-	Branch      string  `json:"branch"`
-	Domain      string  `json:"domain"`
-	ProjectType string  `json:"project_type"`
-	Port        int     `json:"port"`
-	NeedsDB     bool    `json:"needs_db"`
-	NeedsS3     bool    `json:"needs_s3"`
-	OwnerID     *string `json:"owner_id,omitempty"`
-	DBName      *string `json:"db_name,omitempty"`
-	S3Bucket    *string `json:"s3_bucket,omitempty"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	RepoURL           string  `json:"repo_url"`
+	Branch            string  `json:"branch"`
+	Domain            string  `json:"domain"`
+	ProjectType       string  `json:"project_type"`
+	Port              int     `json:"port"`
+	NeedsDB           bool    `json:"needs_db"`
+	NeedsS3           bool    `json:"needs_s3"`
+	EnablePreviewEnvs bool    `json:"enable_preview_envs"`
+	OwnerID           *string `json:"owner_id,omitempty"`
+	DBName            *string `json:"db_name,omitempty"`
+	S3Bucket          *string `json:"s3_bucket,omitempty"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
 }
 
 type CreateProjectRequest struct {
@@ -40,12 +41,13 @@ type CreateProjectRequest struct {
 }
 
 type UpdateProjectRequest struct {
-	Name           *string `json:"name,omitempty"`
-	Domain         *string `json:"domain,omitempty"`
-	Branch         *string `json:"branch,omitempty"`
-	Port           *int    `json:"port,omitempty"`
-	GithubToken    *string `json:"github_token,omitempty"`
-	InstallationID *int64  `json:"installation_id,omitempty"`
+	Name              *string `json:"name,omitempty"`
+	Domain            *string `json:"domain,omitempty"`
+	Branch            *string `json:"branch,omitempty"`
+	Port              *int    `json:"port,omitempty"`
+	GithubToken       *string `json:"github_token,omitempty"`
+	InstallationID    *int64  `json:"installation_id,omitempty"`
+	EnablePreviewEnvs *bool   `json:"enable_preview_envs,omitempty"`
 }
 
 type Deployment struct {
@@ -57,6 +59,9 @@ type Deployment struct {
 	K8sNamespace string  `json:"k8s_namespace,omitempty"`
 	BuildLog     *string `json:"build_log,omitempty"`
 	DeployLog    *string `json:"deploy_log,omitempty"`
+	PRNumber     *int    `json:"pr_number,omitempty"`
+	PRBranch     *string `json:"pr_branch,omitempty"`
+	PRDomain     *string `json:"pr_domain,omitempty"`
 	CreatedAt    string  `json:"created_at"`
 	UpdatedAt    string  `json:"updated_at"`
 }
@@ -223,4 +228,11 @@ func (c *Client) RollbackProject(projectID, commitHash string) error {
 		SkipBuild:  true,
 	}
 	return c.Post(fmt.Sprintf("/api/projects/%s/deploy", projectID), req, nil)
+}
+
+// ListActivePRs returns active PR preview deployments for a project.
+func (c *Client) ListActivePRs(projectID string) ([]Deployment, error) {
+	var deployments []Deployment
+	err := c.Get(fmt.Sprintf("/api/projects/%s/prs", projectID), &deployments)
+	return deployments, err
 }
