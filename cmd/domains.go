@@ -105,24 +105,34 @@ var domainsCreateCmd = &cobra.Command{
 var attachProjectID string
 
 var domainsAttachCmd = &cobra.Command{
-	Use:   "attach <domain-id>",
-	Short: "Attach a domain to a project",
-	Args:  cobra.ExactArgs(1),
+	Use:   "attach <domain-id> [domain-id...]",
+	Short: "Attach one or more domains to a project",
+	Long: `Attach one or more free (unattached) domains to a project.
+All specified domains will point to the same project.
+
+Examples:
+  usectl domains attach <domain-id> --project <project-id>
+  usectl domains attach <id1> <id2> <id3> --project <project-id>`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		domain, err := client.AttachDomain(args[0], api.AttachDomainRequest{ProjectID: attachProjectID})
-		if err != nil {
-			return err
-		}
 
-		if jsonOutput {
-			return output.JSON(domain)
-		}
+		for _, domainID := range args {
+			domain, err := client.AttachDomain(domainID, api.AttachDomainRequest{ProjectID: attachProjectID})
+			if err != nil {
+				fmt.Printf("✗ Failed to attach domain %s: %v\n", domainID[:8], err)
+				continue
+			}
 
-		fmt.Printf("✓ Domain %s attached to project %s\n", domain.Domain, attachProjectID[:8])
+			if jsonOutput {
+				output.JSON(domain)
+			} else {
+				fmt.Printf("✓ Domain %s attached to project %s\n", domain.Domain, attachProjectID[:8])
+			}
+		}
 		return nil
 	},
 }
