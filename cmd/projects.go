@@ -34,6 +34,8 @@ Subcommands:
   start/stop   Scale the project's containers up or down
   status       Check if the project's containers are running
   logs         View live runtime logs from the application
+  shell        Connect to an interactive SPDY shell in the running pod
+  diagnostics  View K8s crash reports, reasons, and previous logs
   build-logs   View build and deploy logs for a specific deployment
   stats        View CPU, memory, and network usage metrics
   s3           Manage S3 object storage for the project`,
@@ -775,6 +777,80 @@ Enable preview environments with:
 	},
 }
 
+var projectsShellCmd = &cobra.Command{
+	Use:   "shell <id>",
+	Short: "Connect to an interactive SPDY shell in the running pod",
+	Long: `Upgrades your connection to an interactive SPDY-proxy WebSocket tunnel,
+granting you direct /bin/sh access into the project's running container securely.`,
+	Example: `  usectl projects shell a8f15889`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		
+		fmt.Printf("Connecting to project %s...\n", args[0])
+		err = client.StreamTerminal(args[0], "")
+		if err != nil {
+			return err
+		}
+		return nil
+	},
+}
+
+var projectsDiagnosticsCmd = &cobra.Command{
+	Use:   "diagnostics <id>",
+	Short: "View K8s crash reports, reasons, and previous logs for a failing pod",
+	Long: `Returns precise Kubernetes pod lifecycle events to debug crash loops or CreateContainerConfigErrors.`,
+	Example: `  usectl projects diagnostics a8f15889`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		
+		diag, err := client.GetDiagnostics(args[0])
+		if err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			return output.JSON(diag)
+		}
+
+		fmt.Printf("Diagnostics for Pod: %s\n", diag.PodName)
+		fmt.Printf("Phase: %s\n", diag.Phase)
+		
+		if diag.ContainerStatus != nil {
+			fmt.Printf("\nContainer Status: %s (%s)\n", diag.ContainerStatus.State, diag.ContainerStatus.WaitReason)
+			if diag.ContainerStatus.Message != "" {
+				fmt.Printf("Message: %s\n", diag.ContainerStatus.Message)
+			}
+			fmt.Printf("Restart Count: %d\n", diag.ContainerStatus.RestartCount)
+		}
+
+		if diag.PreviousLogs != "" {
+			fmt.Println("\n--- Previous Crash Logs ---")
+			fmt.Println(diag.PreviousLogs)
+		}
+
+		if len(diag.Events) > 0 {
+			fmt.Println("\n--- Recent Kubernetes Events ---")
+			rows := make([][]string, len(diag.Events))
+			for i, e := range diag.Events {
+				rows[i] = []string{e.Time, e.Type, e.Reason, e.Message}
+			}
+			output.Table([]string{"Time", "Type", "Reason", "Message"}, rows)
+		} else {
+			fmt.Println("\nNo recent adverse Kubernetes events found.")
+		}
+
+		return nil
+	},
+}
+
 func init() {
 	// Create flags
 	projectsCreateCmd.Flags().StringVar(&createName, "name", "", "Project name (required)")
@@ -813,15 +889,22 @@ func init() {
 	projectsCmd.AddCommand(projectsUpdateCmd)
 	projectsCmd.AddCommand(projectsDeleteCmd)
 	projectsCmd.AddCommand(projectsDeployCmd)
-	projectsCmd.AddCommand(projectsLogsCmd)
-	projectsCmd.AddCommand(projectsBuildLogsCmd)
 	projectsCmd.AddCommand(projectsDeploymentsCmd)
 	projectsCmd.AddCommand(projectsRollbackCmd)
 	projectsCmd.AddCommand(projectsStartCmd)
 	projectsCmd.AddCommand(projectsStopCmd)
 	projectsCmd.AddCommand(projectsStatusCmd)
+	projectsCmd.AddCommand(projectsLogsCmd)
+	projectsCmd.AddCommand(projectsShellCmd)
+	projectsCmd.AddCommand(projectsDiagnosticsCmd)
+	projectsCmd.AddCommand(projectsBuildLogsCmd)
 	projectsCmd.AddCommand(projectsStatsCmd)
 	projectsCmd.AddCommand(projectsPRsCmd)
+	// Additional sub-groups
+	projectsCmd.AddCommand(s3Cmd)
+	projectsCmd.AddCommand(cronCmd)
+	projectsCmd.AddCommand(envsCmd)
+	projectsCmd.AddCommand(domainsCmd)
 
 	rootCmd.AddCommand(projectsCmd)
 }

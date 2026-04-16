@@ -4,6 +4,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
+
+	"github.com/gorilla/websocket"
+	"golang.org/x/term"
 )
 
 // ========== Projects ==========
@@ -103,6 +109,34 @@ type LogsResponse struct {
 
 type DeploymentLogsResponse struct {
 	Log string `json:"log"`
+}
+
+type DiagnosticsEvent struct {
+	Type    string `json:"type"`
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+	Time    string `json:"time"`
+}
+
+type ContainerStatus struct {
+	State        string `json:"state"`
+	WaitReason   string `json:"reason,omitempty"`
+	Message      string `json:"message,omitempty"`
+	RestartCount int32  `json:"restart_count"`
+}
+
+type DiagnosticResponse struct {
+	PodName         string            `json:"pod_name"`
+	Phase           string            `json:"phase"`
+	ContainerStatus *ContainerStatus  `json:"container_status,omitempty"`
+	Events          []DiagnosticsEvent `json:"events"`
+	PreviousLogs    string            `json:"previous_logs,omitempty"`
+}
+
+func (c *Client) GetDiagnostics(id string) (*DiagnosticResponse, error) {
+	var resp DiagnosticResponse
+	err := c.Get(fmt.Sprintf("/api/projects/%s/diagnostics", id), &resp)
+	return &resp, err
 }
 
 func (c *Client) ListProjects() ([]ProjectWithDeployment, error) {
@@ -241,4 +275,67 @@ func (c *Client) ListActivePRs(projectID string) ([]Deployment, error) {
 	var deployments []Deployment
 	err := c.Get(fmt.Sprintf("/api/projects/%s/prs", projectID), &deployments)
 	return deployments, err
+}
+
+func (c *Client) StreamTerminal(projectID string, podName string) error {
+	path := fmt.Sprintf("/api/projects/%s/terminal?token=%s", projectID, url.QueryEscape(c.Token))
+	if podName != "" {
+		path += fmt.Sprintf("&pod=%s", url.QueryEscape(podName))
+	}
+
+	wsURL := c.BaseURL
+	if strings.HasPrefix(wsURL, "https://") {
+		wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+	} else if strings.HasPrefix(wsURL, "http://") {
+		wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
+	}
+	wsURL += path
+
+	// Put terminal into raw mode
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		return fmt.Errorf("failed to set raw terminal mode: %w", err)
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	dialer := websocket.DefaultDialer
+	conn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("websocket connection failed: %w", err)
+	}
+	defer conn.Close()
+
+	done := make(chan struct{})
+
+	// Handle STDOUT
+	go func() {
+		defer close(done)
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			os.Stdout.Write(message)
+		}
+	}()
+
+	// Handle STDIN
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if err != nil {
+				return
+			}
+			if n > 0 {
+				err = conn.WriteMessage(websocket.TextMessage, buf[:n])
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	<-done
+	return nil
 }

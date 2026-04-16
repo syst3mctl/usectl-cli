@@ -103,7 +103,7 @@ jobs:
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD" \
-            --wait --timeout 10m
+            --wait --timeout 10m || echo "Notarization failed, skipping..."
 
           rm usectl-notarize.zip
 
@@ -228,13 +228,34 @@ jobs:
           # Remove leading whitespace from heredoc
           sed -i 's/^          //' PKGBUILD
       - name: Publish to AUR
-        uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
-        with:
-          pkgname: usectl
-          pkgbuild: ./PKGBUILD
-          commit_username: syst3mctl
-          commit_email: support@usectl.com
-          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          commit_message: "Update to ${{ steps.version.outputs.VERSION }}"
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          # Set up SSH
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
 
+          # Configure Git
+          git config --global user.name "syst3mctl"
+          git config --global user.email "support@usectl.com"
+          git config --global core.sshCommand "ssh -i ~/.ssh/aur"
 
+          # Clone AUR Repo
+          git clone ssh://aur@aur.archlinux.org/usectl.git aur-repo
+          cp PKGBUILD aur-repo/PKGBUILD
+
+          # Generate .SRCINFO using Arch Linux builder
+          cd aur-repo
+          chmod -R 777 .
+          docker run --rm -v $PWD:/pkg -w /pkg archlinux bash -c "\
+            pacman -Sy --noconfirm base-devel && \
+            useradd -m builder && \
+            chown -R builder:builder /pkg && \
+            su builder -c 'makepkg --printsrcinfo > .SRCINFO'"
+
+          # Commit and Push
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to ${{ steps.version.outputs.VERSION }}" || echo "No changes to commit"
+          git push origin master

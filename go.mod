@@ -3,6 +3,7 @@ module github.com/giorgi/usectl
 go 1.25.7
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.40.0
 )
