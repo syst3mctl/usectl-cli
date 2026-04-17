@@ -30,6 +30,15 @@ yay -S usectl
 curl -fsSL https://manager.usectl.com/install.sh | bash
 ```
 
+### Manual Install (Windows, Linux, macOS)
+
+Download the appropriate binary from [GitHub Releases](https://github.com/syst3mctl/usectl-cli/releases).
+
+**Windows:**
+1. Download the `usectl_vX.X.X_windows_amd64.zip` asset.
+2. Extract the `.zip` archive.
+3. Move `usectl.exe` into a safe directory and add that directory to your Windows System PATH.
+
 ### Build from Source
 
 Requires Go 1.25+:
@@ -40,6 +49,7 @@ cd usectl-cli
 go build -o usectl .
 sudo mv usectl /usr/local/bin/
 ```
+
 
 ---
 
