@@ -62,3 +62,15 @@ func (c *Client) DownloadS3Object(projectID, key, destPath string) (string, erro
 func (c *Client) ToggleS3(projectID string, enable bool) error {
 	return c.Post(fmt.Sprintf("/api/projects/%s/s3/toggle", projectID), S3ToggleRequest{Enable: enable}, nil)
 }
+
+type S3CdnToggleResponse struct {
+	CdnEnabled bool   `json:"cdn_enabled"`
+	CdnURL     string `json:"cdn_url"`
+	Message    string `json:"message"`
+}
+
+func (c *Client) ToggleS3Cdn(projectID string) (*S3CdnToggleResponse, error) {
+	var resp S3CdnToggleResponse
+	err := c.Post(fmt.Sprintf("/api/projects/%s/s3/cdn/toggle", projectID), nil, &resp)
+	return &resp, err
+}

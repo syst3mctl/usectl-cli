@@ -10,14 +10,15 @@ import (
 
 var s3Cmd = &cobra.Command{
 	Use:   "s3",
-	Short: "Manage S3 object storage (MinIO) for a project",
+	Short: "Manage S3 object storage for a project",
 	Long: `Manage the S3 bucket provisioned for a project.
 Requires the project to have been created with --s3 or toggled on.
 
 Subcommands:
   list      List objects in the bucket (with optional prefix filter)
   download  Download a specific object by key
-  toggle    Enable or disable S3 storage for the project`,
+  toggle    Enable or disable S3 storage for the project
+  cdn       Enable or disable public CDN access for the bucket`,
 }
 
 var s3ListPrefix string
@@ -101,7 +102,7 @@ var s3ToggleEnable bool
 var s3ToggleCmd = &cobra.Command{
 	Use:   "toggle <project-id>",
 	Short: "Enable or disable S3 storage for a project",
-	Long: `Toggle S3 storage on or off. When enabled, a MinIO bucket and dedicated
+	Long: `Toggle S3 storage on or off. When enabled, a bucket and dedicated
 user are provisioned. When disabled, the S3 flag is cleared (bucket remains).`,
 	Example: `  usectl projects s3 toggle a8f15889 --enable
   usectl projects s3 toggle a8f15889 --enable=false`,
@@ -121,6 +122,43 @@ user are provisioned. When disabled, the S3 flag is cleared (bucket remains).`,
 			action = "enabled"
 		}
 		fmt.Printf("✓ S3 storage %s for project %s\n", action, args[0][:8])
+		return nil
+	},
+}
+
+var s3CdnCmd = &cobra.Command{
+	Use:   "cdn <project-id>",
+	Short: "Toggle public CDN access for a project's S3 bucket",
+	Long: `Enable or disable public CDN access for a project's S3 bucket.
+When enabled, files are publicly accessible at:
+  https://cdn.usectl.com/<shortID>/<filename>
+
+When disabled, all CDN URLs return 403 Forbidden.
+Use ?v=<timestamp> query parameters for cache busting.`,
+	Example: `  usectl projects s3 cdn a8f15889          # Toggle CDN on/off
+  # CDN URL: https://cdn.usectl.com/a0545a2c/photo.jpg`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.ToggleS3Cdn(args[0])
+		if err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			return output.JSON(resp)
+		}
+
+		if resp.CdnEnabled {
+			fmt.Printf("✓ CDN enabled for project %s\n", args[0][:8])
+			fmt.Printf("  URL: %s\n", resp.CdnURL)
+		} else {
+			fmt.Printf("✓ CDN disabled for project %s\n", args[0][:8])
+		}
 		return nil
 	},
 }
@@ -158,6 +196,7 @@ func init() {
 	s3Cmd.AddCommand(s3ListCmd)
 	s3Cmd.AddCommand(s3DownloadCmd)
 	s3Cmd.AddCommand(s3ToggleCmd)
+	s3Cmd.AddCommand(s3CdnCmd)
 
 	// Register under projects
 	projectsCmd.AddCommand(s3Cmd)
