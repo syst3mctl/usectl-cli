@@ -154,14 +154,74 @@ var domainsDeleteCmd = &cobra.Command{
 	},
 }
 
+var (
+	attachAppAppID  string
+	attachAppDetach bool
+)
+
+var domainsAttachAppCmd = &cobra.Command{
+	Use:   "attach-app <domain-id>",
+	Short: "Pin a domain to a specific app within its project (or detach)",
+	Long: `Project-level domains route to whichever single-app project is the default.
+Multi-app projects need to pin domains to a specific app — use this to
+choose which app a custom domain points at.
+
+Pass --detach to unpin (the domain stays with the project but goes back
+to default routing).`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		if attachAppDetach {
+			if err := client.DetachDomainFromApp(args[0]); err != nil {
+				return err
+			}
+			fmt.Println("✓ Domain detached from app")
+			return nil
+		}
+		if attachAppAppID == "" {
+			return fmt.Errorf("--app is required (or pass --detach)")
+		}
+		if err := client.AttachDomainToApp(args[0], attachAppAppID); err != nil {
+			return err
+		}
+		fmt.Println("✓ Domain attached to app")
+		return nil
+	},
+}
+
+var domainsVerifyCmd = &cobra.Command{
+	Use:   "verify <domain-id>",
+	Short: "Re-check a domain's CNAME / SSL status (Cloudflare for SaaS)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		resp, err := client.VerifyDomain(args[0])
+		if err != nil {
+			return err
+		}
+		return output.JSON(resp)
+	},
+}
+
 func init() {
 	domainsAttachCmd.Flags().StringVar(&attachProjectID, "project", "", "Project ID to attach (required)")
 	domainsAttachCmd.MarkFlagRequired("project")
+
+	domainsAttachAppCmd.Flags().StringVar(&attachAppAppID, "app", "", "App UUID to pin the domain to")
+	domainsAttachAppCmd.Flags().BoolVar(&attachAppDetach, "detach", false, "Detach the domain from any app (project-level routing)")
 
 	domainsCmd.AddCommand(domainsListCmd)
 	domainsCmd.AddCommand(domainsGetCmd)
 	domainsCmd.AddCommand(domainsCreateCmd)
 	domainsCmd.AddCommand(domainsAttachCmd)
+	domainsCmd.AddCommand(domainsAttachAppCmd)
+	domainsCmd.AddCommand(domainsVerifyCmd)
 	domainsCmd.AddCommand(domainsDeleteCmd)
 
 	rootCmd.AddCommand(domainsCmd)

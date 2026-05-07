@@ -12,8 +12,10 @@ var (
 	jsonOutput bool
 )
 
-// Version is set at build time by GoReleaser via ldflags.
-var Version = "dev"
+// Version is set at build time by GoReleaser via ldflags. The default below
+// reflects the latest released version so unstamped local builds still report
+// something meaningful.
+var Version = "v1.1.0"
 
 var rootCmd = &cobra.Command{
 	Use:     "usectl",
@@ -23,14 +25,26 @@ var rootCmd = &cobra.Command{
 running on K3s. It provides full lifecycle management for your applications.
 
 Command Groups:
-  login/register  Authenticate with the platform
-  profile         View and update your user profile
-  projects        Create, deploy, update, delete, and monitor projects
-  envs            Manage custom environment variables for a project
-  cron            Manage scheduled cron jobs for a project
-  domains         Manage custom domains
-  billing         Manage your subscription and payment
-  github          GitHub App integration (OAuth, repos, branches)
+  login/register   Authenticate with the platform
+  profile          View and update your user profile
+  projects         Create, deploy, update, delete, and monitor projects
+  apps             Manage multi-app pods within a project (web/worker/release)
+  addons           Manage project addons (database, redis, nats, mongodb, ...)
+  envs             Manage custom env vars for a project
+  vars             Build-time vs runtime variable exposure (per-app overrides)
+  cron             Manage scheduled cron jobs (and run history)
+  domains          Manage custom domains (incl. per-app pinning + verify)
+  members          Manage project members, invitations, and per-developer scope
+  quota            Inspect resource quota, recommendations, plan-resize previews
+  notifications    View and acknowledge in-app notifications
+  billing          Manage your subscription and payment
+  project-billing  Per-project billing (status, portal)
+  price            Server-side price calculator
+  stack-detect     Detect language/framework for a (repo, ref)
+  trial-status     Show your current trial countdown
+  github           GitHub App integration (OAuth, repos, branches)
+  orgs             Manage organizations, members, invitations
+  admin            Admin-only user management
 
 All commands support --json for machine-readable output, making the CLI
 suitable for scripting and AI agent automation.
@@ -39,7 +53,7 @@ Quick Start:
   1. usectl login                                    # Authenticate
   2. usectl github login                             # Connect GitHub
   3. usectl projects create --name my-app \           # Create project
-     --repo https://github.com/user/repo \  
+     --repo https://github.com/user/repo \
      --domain my-app --port 3000
   4. usectl projects deploy <id>                     # Deploy latest commit
   5. usectl projects logs <id>                       # View logs`,
