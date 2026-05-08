@@ -233,17 +233,29 @@ jobs:
         run: |
           # Set up SSH
           mkdir -p ~/.ssh
-          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          # printf preserves the literal newlines from the multi-line secret;
+          # plain `echo` flattens CRLFs on some runners and OpenSSH then
+          # rejects the key.
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
           ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
 
           # Configure Git
           git config --global user.name "syst3mctl"
           git config --global user.email "support@usectl.com"
-          git config --global core.sshCommand "ssh -i ~/.ssh/aur"
+          # Force IPv4 — AUR's IPv6 frontend has been dropping connections
+          # mid-handshake on some hosted runners. ConnectTimeout caps each
+          # attempt so the retry loop can take over quickly.
+          git config --global core.sshCommand "ssh -i ~/.ssh/aur -o AddressFamily=inet -o ConnectTimeout=15"
 
-          # Clone AUR Repo
-          git clone ssh://aur@aur.archlinux.org/usectl.git aur-repo
+          # Clone AUR Repo (with retry — AUR's SSH gateway flakes intermittently)
+          for i in 1 2 3 4 5; do
+            if git clone ssh://aur@aur.archlinux.org/usectl.git aur-repo; then break; fi
+            echo "clone attempt $i failed; retrying in 10s..."
+            rm -rf aur-repo
+            sleep 10
+          done
+          test -d aur-repo/.git || { echo "AUR clone failed after 5 attempts"; exit 1; }
           cp PKGBUILD aur-repo/PKGBUILD
 
           # Generate .SRCINFO using Arch Linux builder
@@ -258,4 +270,8 @@ jobs:
           # Commit and Push
           git add PKGBUILD .SRCINFO
           git commit -m "Update to ${{ steps.version.outputs.VERSION }}" || echo "No changes to commit"
-          git push origin master
+          for i in 1 2 3 4 5; do
+            if git push origin master; then break; fi
+            echo "push attempt $i failed; retrying in 10s..."
+            sleep 10
+          done
