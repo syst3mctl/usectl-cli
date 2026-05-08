@@ -13,7 +13,7 @@ import (
 var envsCmd = &cobra.Command{
 	Use:     "envs",
 	Aliases: []string{"env"},
-	Short:   "Manage custom environment variables for a project",
+	Short:   "Manage custom environment variables for a machine",
 	Long: `Manage custom environment variables that are securely stored in an encrypted
 vault and injected into your application at deploy time.
 
@@ -23,7 +23,7 @@ request are preserved. Changes take effect on the next deployment.`,
 
 var envsListCmd = &cobra.Command{
 	Use:   "list <project-id>",
-	Short: "List all custom environment variables for a project",
+	Short: "List all custom environment variables for a machine",
 	Example: `  usectl envs list a8f15889
   usectl envs list a8f15889 --json`,
 	Args: cobra.ExactArgs(1),
@@ -72,7 +72,7 @@ var envsListCmd = &cobra.Command{
 var envsSetCmd = &cobra.Command{
 	Use:   "set <project-id> KEY=value [KEY=value ...]",
 	Short: "Set or update environment variables (merge behavior)",
-	Long: `Set one or more environment variables for a project. Uses merge behavior —
+	Long: `Set one or more environment variables for a machine. Uses merge behavior —
 existing variables not included in this command are preserved.
 
 Changes take effect on the next deployment. Trigger a deploy with:

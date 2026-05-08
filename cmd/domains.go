@@ -106,8 +106,8 @@ var attachProjectID string
 
 var domainsAttachCmd = &cobra.Command{
 	Use:   "attach <domain-id> [domain-id...]",
-	Short: "Attach one or more domains to a project",
-	Long: `Attach one or more free (unattached) domains to a project.
+	Short: "Attach one or more domains to a machine",
+	Long: `Attach one or more free (unattached) domains to a machine.
 All specified domains will point to the same project.
 
 Examples:
@@ -166,7 +166,7 @@ var domainsAttachAppCmd = &cobra.Command{
 Multi-app projects need to pin domains to a specific app — use this to
 choose which app a custom domain points at.
 
-Pass --detach to unpin (the domain stays with the project but goes back
+Pass --detach to unpin (the domain stays with the machine but goes back
 to default routing).`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

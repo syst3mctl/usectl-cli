@@ -12,7 +12,7 @@ import (
 var membersCmd = &cobra.Command{
 	Use:     "members",
 	Aliases: []string{"member", "team"},
-	Short:   "Manage project members and per-project invitations",
+	Short:   "Manage machine members and per-machine invitations",
 	Long: `Project members are independent of organization roles — a user can be
 an org admin with viewer-only access to a specific project, or vice versa.
 
@@ -25,7 +25,7 @@ Roles:
 
 var membersListCmd = &cobra.Command{
 	Use:   "list <project-id>",
-	Short: "List members of a project",
+	Short: "List members of a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -72,7 +72,7 @@ var membersRoleCmd = &cobra.Command{
 var membersRemoveCmd = &cobra.Command{
 	Use:     "remove <project-id> <user-id>",
 	Aliases: []string{"rm"},
-	Short:   "Remove a member from a project. Owner-only.",
+	Short:   "Remove a member from a machine. Owner-only.",
 	Args:    cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -190,7 +190,7 @@ unrestricted developer access.`,
 var membersInviteCmd = &cobra.Command{
 	Use:   "invitations",
 	Aliases: []string{"invites"},
-	Short: "Manage project invitations (per-project, separate from org invites)",
+	Short: "Manage machine invitations (per-machine, separate from org invites)",
 }
 
 var (
@@ -200,7 +200,7 @@ var (
 
 var membersInviteCreateCmd = &cobra.Command{
 	Use:   "create <project-id>",
-	Short: "Invite a user to a project by email. Owner-only.",
+	Short: "Invite a user to a machine by email. Owner-only.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)

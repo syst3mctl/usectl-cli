@@ -20,7 +20,7 @@ the same project namespace, all sharing the same addons (database, redis, etc).
 
 Subcommands:
   list        List apps in a project
-  create      Add a new app to a project
+  create      Add a new app to a machine
   update      Change an app's branch, port, replicas, visibility, etc.
   delete      Delete an app and its K8s resources
   start/stop  Scale an app's deployment to 0 / restore replicas
@@ -98,7 +98,7 @@ var appsCreateCmd = &cobra.Command{
 	Use:   "create <project-id>",
 	Short: "Add a new app pod to an existing project",
 	Long: `Create a web/worker/release pod inside an existing project. Each app
-gets its own GitHub repo + branch but shares the project's addons and
+gets its own GitHub repo + branch but shares the machine's addons and
 networking.`,
 	Example: `  # Web app
   usectl apps create proj-id --name api --repo https://github.com/me/api --port 8080

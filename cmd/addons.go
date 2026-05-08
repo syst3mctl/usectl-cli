@@ -14,14 +14,14 @@ import (
 var addonsCmd = &cobra.Command{
 	Use:     "addons",
 	Aliases: []string{"addon"},
-	Short:   "Manage project addons (database, redis, nats, mongodb, s3, ...)",
+	Short:   "Manage machine addons (database, redis, nats, mongodb, s3, ...)",
 	Long: `An addon is a packaged service the platform provisions and wires into your
 project's namespace. Each addon emits a connection Secret that gets injected
-into the project's pods as env vars (DATABASE_URL, REDIS_URL, etc.).
+into the machine's pods as env vars (DATABASE_URL, REDIS_URL, etc.).
 
 Modes:
   managed    Shared instance — free, doesn't count against project budget.
-  dedicated  Workload runs inside the project namespace with its own PVC.
+  dedicated  Workload runs inside the machine namespace with its own PVC.
 
 Subcommands:
   catalog          List addons available in the catalog
@@ -108,9 +108,9 @@ var (
 var addonsAddCmd = &cobra.Command{
 	Use:   "add <project-id>",
 	Short: "Provision a new addon (managed by default; --mode dedicated for in-namespace)",
-	Long: `Provision an addon for a project. Managed mode wires the project to a
+	Long: `Provision an addon for a machine. Managed mode wires the machine to a
 shared instance (free, no quota cost). Dedicated mode runs the addon
-inside the project namespace with its own PVC and counts against the
+inside the machine namespace with its own PVC and counts against the
 plan's CPU/RAM budget.
 
 For dedicated addons you can pick a size preset (small/medium/large/...)

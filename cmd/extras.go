@@ -44,12 +44,12 @@ new-app modal to preselect Dockerfile defaults.`,
 var billingProjectCmd = &cobra.Command{
 	Use:   "project-billing",
 	Aliases: []string{"pbilling"},
-	Short: "View per-project billing details and open the project's billing portal",
+	Short: "View per-machine billing details and open the machine's billing portal",
 }
 
 var billingProjectGetCmd = &cobra.Command{
 	Use:   "get <project-id>",
-	Short: "Show billing status, plan, and resource allocation for a project",
+	Short: "Show billing status, plan, and resource allocation for a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -82,7 +82,7 @@ var (
 
 var billingProjectPortalCmd = &cobra.Command{
 	Use:   "portal <project-id>",
-	Short: "Open the Stripe billing portal for a project",
+	Short: "Open the Stripe billing portal for a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -133,7 +133,7 @@ var priceCmd = &cobra.Command{
 
 var projectDomainsListCmd = &cobra.Command{
 	Use:   "project-domains <project-id>",
-	Short: "List all domains attached to a single project",
+	Short: "List all domains attached to a single machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -289,7 +289,7 @@ var trialStatusCmd = &cobra.Command{
 
 var storageUsageCmd = &cobra.Command{
 	Use:   "storage <project-id>",
-	Short: "Show S3 storage usage for a project",
+	Short: "Show S3 storage usage for a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)

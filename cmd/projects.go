@@ -12,33 +12,39 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// machinesCmd is the renamed top-level command for what the API still calls
+// "projects". The dashboard switched to "Machine" terminology in
+// PROMPT_rename_project_to_machine_minimal.md; the CLI follows here.
+// `projects` / `project` / `p` stay as aliases so existing scripts and muscle
+// memory keep working.
 var projectsCmd = &cobra.Command{
-	Use:     "projects",
-	Aliases: []string{"project", "p"},
-	Short:   "Manage projects — create, deploy, update, delete, and monitor applications",
+	Use:     "machines",
+	Aliases: []string{"machine", "m", "projects", "project", "p"},
+	Short:   "Manage machines — create, deploy, update, delete, and monitor applications",
 	Long: `Manage the full lifecycle of applications on the usectl platform.
 
-A project represents a deployable application linked to a GitHub repository.
-Each project gets its own Kubernetes namespace, optional PostgreSQL database,
-and optional S3 storage bucket (MinIO).
+A machine (a.k.a. "project" in the API) represents a deployable application
+linked to a GitHub repository. Each machine gets its own Kubernetes namespace,
+optional PostgreSQL database, and optional S3 storage bucket (MinIO).
 
 Subcommands:
-  list         List all projects with status and features
-  get          Show detailed project info including deployments
-  create       Create a new project from a GitHub repository
-  update       Modify project settings (domain, branch, port)
-  delete       Delete a project and all its resources (namespace, DB, S3)
+  list         List all machines with status and features
+  get          Show detailed machine info including deployments
+  create       Create a new machine from a GitHub repository
+  update       Modify machine settings (domain, branch, port)
+  delete       Delete a machine and all its resources (namespace, DB, S3)
   deploy       Trigger a new build and deployment
-  deployments  List all deployments for a project
+  deployments  List all deployments for a machine
   rollback     Roll back to a previous deployment
-  start/stop   Scale the project's containers up or down
-  status       Check if the project's containers are running
+  start/stop   Scale the machine's containers up or down
+  status       Check if the machine's containers are running
   logs         View live runtime logs from the application
   shell        Connect to an interactive SPDY shell in the running pod
   diagnostics  View K8s crash reports, reasons, and previous logs
   build-logs   View build and deploy logs for a specific deployment
   stats        View CPU, memory, and network usage metrics
-  s3           Manage S3 object storage for the project`,
+  pods         List/inspect/restart pods running inside the machine
+  s3           Manage S3 object storage for the machine`,
 }
 
 var projectsListCmd = &cobra.Command{

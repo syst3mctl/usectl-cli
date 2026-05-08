@@ -10,14 +10,14 @@ import (
 
 var s3Cmd = &cobra.Command{
 	Use:   "s3",
-	Short: "Manage S3 object storage for a project",
-	Long: `Manage the S3 bucket provisioned for a project.
-Requires the project to have been created with --s3 or toggled on.
+	Short: "Manage S3 object storage for a machine",
+	Long: `Manage the S3 bucket provisioned for a machine.
+Requires the machine to have been created with --s3 or toggled on.
 
 Subcommands:
   list      List objects in the bucket (with optional prefix filter)
   download  Download a specific object by key
-  toggle    Enable or disable S3 storage for the project
+  toggle    Enable or disable S3 storage for the machine
   cdn       Enable or disable public CDN access for the bucket`,
 }
 
@@ -25,8 +25,8 @@ var s3ListPrefix string
 
 var s3ListCmd = &cobra.Command{
 	Use:   "list <project-id>",
-	Short: "List objects in a project's S3 bucket",
-	Long: `Returns all objects (files and directories) in the project's S3 bucket.
+	Short: "List objects in a machine's S3 bucket",
+	Long: `Returns all objects (files and directories) in the machine's S3 bucket.
 Use --prefix to filter by path prefix.`,
 	Example: `  usectl projects s3 list a8f15889
   usectl projects s3 list a8f15889 --prefix uploads/`,
@@ -75,7 +75,7 @@ var (
 
 var s3DownloadCmd = &cobra.Command{
 	Use:   "download <project-id>",
-	Short: "Download an object from the project's S3 bucket",
+	Short: "Download an object from the machine's S3 bucket",
 	Long: `Download a single object by its key. The file is saved to the current
 directory using the object's filename, or to a custom path with --output.`,
 	Example: `  usectl projects s3 download a8f15889 --key uploads/photo.jpg
@@ -101,7 +101,7 @@ var s3ToggleEnable bool
 
 var s3ToggleCmd = &cobra.Command{
 	Use:   "toggle <project-id>",
-	Short: "Enable or disable S3 storage for a project",
+	Short: "Enable or disable S3 storage for a machine",
 	Long: `Toggle S3 storage on or off. When enabled, a bucket and dedicated
 user are provisioned. When disabled, the S3 flag is cleared (bucket remains).`,
 	Example: `  usectl projects s3 toggle a8f15889 --enable
@@ -128,8 +128,8 @@ user are provisioned. When disabled, the S3 flag is cleared (bucket remains).`,
 
 var s3CdnCmd = &cobra.Command{
 	Use:   "cdn <project-id>",
-	Short: "Toggle public CDN access for a project's S3 bucket",
-	Long: `Enable or disable public CDN access for a project's S3 bucket.
+	Short: "Toggle public CDN access for a machine's S3 bucket",
+	Long: `Enable or disable public CDN access for a machine's S3 bucket.
 When enabled, files are publicly accessible at:
   https://cdn.usectl.com/<shortID>/<filename>
 

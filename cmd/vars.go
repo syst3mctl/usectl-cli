@@ -18,7 +18,7 @@ var varsCmd = &cobra.Command{
   env_file   Written into a .env file before docker build.
 
 Project-level defaults apply to every variable; per-app columns override
-the project default; per-key rows override the per-app default.
+the machine default; per-key rows override the per-app default.
 
 See PROMPT_explicit_build_arg_checkbox.md for the full design.`,
 }
@@ -31,7 +31,7 @@ var (
 
 var varsProjectDefaultsCmd = &cobra.Command{
 	Use:   "project-defaults <project-id>",
-	Short: "Set the project-level default build_target + .env file config",
+	Short: "Set the machine-level default build_target + .env file config",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -64,9 +64,9 @@ var (
 
 var varsAppDefaultsCmd = &cobra.Command{
 	Use:   "app-defaults <project-id> <app-id>",
-	Short: "Override the project default for a single app (or clear an override)",
+	Short: "Override the machine default for a single app (or clear an override)",
 	Long: `Per-app overrides are nullable — pass --clear-build-target or
---clear-dotenv-path to remove an override and inherit the project default.`,
+--clear-dotenv-path to remove an override and inherit the machine default.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)

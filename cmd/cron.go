@@ -19,18 +19,18 @@ var (
 var cronCmd = &cobra.Command{
 	Use:     "cron",
 	Aliases: []string{"crons", "cronjob"},
-	Short:   "Manage scheduled cron jobs for a project",
-	Long: `Manage Kubernetes CronJobs for a project. Cron jobs run on a schedule
-using the same container image as the project's deployment, with access
+	Short:   "Manage scheduled cron jobs for a machine",
+	Long: `Manage Kubernetes CronJobs for a machine. Cron jobs run on a schedule
+using the same container image as the machine's deployment, with access
 to all addon secrets (database, Redis, etc.).
 
-Requires the 'cron' addon to be enabled on the project.`,
+Requires the 'cron' addon to be enabled on the machine.`,
 }
 
 var cronListCmd = &cobra.Command{
 	Use:     "list <project-id>",
 	Aliases: []string{"ls"},
-	Short:   "List all cron jobs for a project",
+	Short:   "List all cron jobs for a machine",
 	Example: `  usectl cron list a8f15889
   usectl cron ls a8f15889 --json`,
 	Args: cobra.ExactArgs(1),
@@ -74,9 +74,9 @@ var cronListCmd = &cobra.Command{
 
 var cronAddCmd = &cobra.Command{
 	Use:   "add <project-id>",
-	Short: "Add a new cron job to a project",
+	Short: "Add a new cron job to a machine",
 	Long: `Create a scheduled cron job. The job runs in the same container image
-as the project's deployment with access to all addon env vars.
+as the machine's deployment with access to all addon env vars.
 
 Schedule format: standard cron expression (minute hour day month weekday).
 

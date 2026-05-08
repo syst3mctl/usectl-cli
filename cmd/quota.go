@@ -11,16 +11,16 @@ import (
 
 var quotaCmd = &cobra.Command{
 	Use:   "quota",
-	Short: "Inspect a project's resource quota and pressure status",
-	Long: `Shows the project's CPU/RAM/storage budget vs live usage from the namespace
+	Short: "Inspect a machine's resource quota and pressure status",
+	Long: `Shows the machine's CPU/RAM/storage budget vs live usage from the namespace
 ResourceQuota. Includes per-app autoscale envelopes (min..max replicas) and
-recommendations when the project is approaching or hitting its quota
+recommendations when the machine is approaching or hitting its quota
 ceiling (upgrade plan, scale down, or rollover legacy oversized pods).`,
 }
 
 var quotaGetCmd = &cobra.Command{
 	Use:   "get <project-id>",
-	Short: "Get quota status for a project",
+	Short: "Get quota status for a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
