@@ -54,12 +54,11 @@ snapcrafts:
   - id: usectl
     name: usectl
     publish: true
-    summary: "CLI for the usectl self-hosted deployment platform"
+    summary: "CLI for the usectl deployment platform"
     description: |
-      usectl is the CLI for the usectl.com platform — a self-hosted Vercel
-      alternative running on K3s. It provides full lifecycle management for
-      your applications including deployment, monitoring, and organization
-      management.
+      usectl is the CLI for the usectl.com platform. It provides full
+      lifecycle management for your applications including deployment,
+      monitoring, and organization management.
     grade: stable
     confinement: strict
     license: MIT

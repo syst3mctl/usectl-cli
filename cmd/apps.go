@@ -18,6 +18,24 @@ var appsCmd = &cobra.Command{
 own GitHub repo + branch. Use this to run a frontend + backend + worker in
 the same project namespace, all sharing the same addons (database, redis, etc).
 
+When to add an app vs. create a new machine:
+  - Same product, different roles (frontend + API + worker)  → one machine,
+    multiple apps. They share the namespace, the addons, and the DB.
+  - Unrelated products that should not share credentials       → separate
+    machines. NetworkPolicies block cross-machine traffic.
+
+App kinds (--kind):
+  web      Default. Public Service + IngressRoute. The machine's domain
+           and the app's --domain route traffic to its --port.
+  worker   No Service, no ingress. Runs --command as a long-lived process
+           (queue consumers, background jobs). Still gets addon env vars.
+  release  One-shot Job that runs to completion before each 'web' rollout.
+           Use for DB migrations or cache warmups. Failure blocks the deploy.
+
+Build rules per app are the same as for the parent machine — see
+'usectl machines create --help' for Dockerfile / auto-detect details.
+Each app can override the machine's env vars via 'usectl apps envs'.
+
 Subcommands:
   list        List apps in a project
   create      Add a new app to a machine

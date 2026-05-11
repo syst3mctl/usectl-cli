@@ -15,14 +15,14 @@ var (
 // Version is set at build time by GoReleaser via ldflags. The default below
 // reflects the latest released version so unstamped local builds still report
 // something meaningful.
-var Version = "v1.1.2"
+var Version = "v1.1.3"
 
 var rootCmd = &cobra.Command{
 	Use:     "usectl",
-	Short:   "usectl — CLI for the usectl.com self-hosted deployment platform",
+	Short:   "usectl — CLI for the usectl.com deployment platform",
 	Version: Version,
-	Long: `usectl is the CLI for the usectl.com platform — a self-hosted Vercel alternative
-running on K3s. It provides full lifecycle management for your applications.
+	Long: `usectl is the CLI for the usectl.com platform. It provides full lifecycle
+management for your applications on Kubernetes.
 
 Command Groups:
   login/register   Authenticate with the platform
@@ -62,7 +62,52 @@ Quick Start:
      --domain my-app --port 3000
   4. usectl machines deploy <id>                     # Deploy latest commit
   5. usectl machines pods <id>                       # See running pods
-  6. usectl machines logs <id> -f                    # Tail logs`,
+  6. usectl machines logs <id> -f                    # Tail logs
+
+──────────────────────────────────────────────────────────────────────────
+AI AGENT GUIDE
+──────────────────────────────────────────────────────────────────────────
+
+Mental model:
+  - A "machine" is one Kubernetes namespace (kdeploy-<name>) + one domain.
+  - "Apps" are pods inside a machine, each built from its own repo/branch.
+    Use multiple apps when frontend + backend + worker belong to the same
+    product and should share addons. Use separate machines for unrelated
+    products.
+  - "Addons" (postgres, redis, nats, mongodb, s3, ...) are provisioned per
+    machine and their credentials are auto-injected into every app pod as
+    env vars (DATABASE_URL, REDIS_URL, ...). Do not set these by hand.
+
+Do I need to commit a Dockerfile?
+  Run 'usectl stack-detect --repo <url> --ref <branch>' first. Auto-build
+  rules (no Dockerfile required, port is forced to 80):
+    next.config.*    → Next.js (npm run build → next start -p 80)
+    vite.config.*    → Vite/React/Vue (npm run build → nginx serves /dist)
+    package.json     → Generic Node.js (npm start, port 80)
+    only HTML/CSS/JS → Static site served by nginx
+  Everything else (Go, Python, Rust, Java, custom Node, ...) MUST ship a
+  Dockerfile in the repo root that EXPOSEs its port, and you must pass
+  --port matching that EXPOSE.
+
+Aliases (all equivalent):
+  machines = machine = m = projects = project = p
+
+Scripting:
+  Pass --json to any command for structured output. Exit code is non-zero
+  on failure. Auth token is read from ~/.usectl/config.json after 'login'.
+
+Common recipes:
+  # Next.js site, no Dockerfile, with Postgres:
+  usectl machines create --name blog --repo https://github.com/me/blog \
+    --domain blog --port 80 --db
+
+  # Go API (Dockerfile in repo) on port 8080:
+  usectl machines create --name api --repo https://github.com/me/api \
+    --domain api --port 8080
+
+  # Add a worker pod to an existing machine:
+  usectl apps create <machine-id> --name worker \
+    --repo https://github.com/me/api --kind worker --command "go run ./worker"`,
 }
 
 func Execute() {

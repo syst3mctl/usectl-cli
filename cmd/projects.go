@@ -221,22 +221,42 @@ Supported project types:
   service  — Long-running server (Node.js, Go, Python, etc.)
   static   — Static site served via nginx
 
-The system auto-detects Dockerfile, Next.js, Vite, or Node.js projects
-and injects an appropriate Dockerfile if none exists.`,
-	Example: `  # Minimal service
-  usectl projects create --name my-api --repo https://github.com/user/api --domain my-api --port 3000
+Build modes — does my repo need a Dockerfile?
+
+  If the repo root contains a Dockerfile, it is used as-is. Otherwise the
+  builder picks ONE of these defaults based on what it finds (in order):
+
+    next.config.{js,ts,mjs}  → Next.js  (npm run build → next start -p 80)
+    vite.config.{js,ts}      → Vite     (npm run build → nginx serves /dist)
+    package.json             → Node.js  (npm start, listens on port 80)
+    no package.json          → Static   (nginx serves the repo as /)
+
+  The auto-injected Dockerfiles ALL listen on port 80, so pass --port 80
+  when relying on them. Backends in Go, Python, Rust, Java, or any custom
+  Node setup are not auto-detected — commit your own Dockerfile that
+  EXPOSEs the port and pass --port matching it.
+
+  Use 'usectl stack-detect --repo <url> --ref <branch>' to preview which
+  build mode will run before calling create.`,
+	Example: `  # Next.js / Vite / generic Node — no Dockerfile in repo
+  usectl machines create --name blog --repo https://github.com/user/blog \\
+    --domain blog --port 80
+
+  # Static HTML site — no Dockerfile, served by nginx
+  usectl machines create --name docs --repo https://github.com/user/docs \\
+    --domain docs --type static
+
+  # Go / Python / Rust backend — Dockerfile required, custom port
+  usectl machines create --name api --repo https://github.com/user/api \\
+    --domain api --port 8080
 
   # Full-featured with database and S3
-  usectl projects create --name my-app --repo https://github.com/user/app \\
+  usectl machines create --name my-app --repo https://github.com/user/app \\
     --domain my-app --type service --branch main --port 8080 --db --s3
 
   # With custom environment variables
-  usectl projects create --name my-api --repo https://github.com/user/api \\
-    --domain my-api --port 3000 --env API_KEY=sk-123 --env NODE_ENV=production
-
-  # Static site
-  usectl projects create --name docs --repo https://github.com/user/docs \\
-    --domain docs --type static`,
+  usectl machines create --name my-api --repo https://github.com/user/api \\
+    --domain my-api --port 3000 --env API_KEY=sk-123 --env NODE_ENV=production`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {

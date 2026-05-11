@@ -2,7 +2,7 @@
 pkgname=usectl
 pkgver=1.0.0
 pkgrel=1
-pkgdesc="CLI for the usectl self-hosted deployment platform"
+pkgdesc="CLI for the usectl deployment platform"
 arch=('x86_64' 'aarch64')
 url="https://github.com/syst3mctl/usectl-cli"
 license=('MIT')

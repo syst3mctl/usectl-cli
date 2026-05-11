@@ -19,6 +19,20 @@ var addonsCmd = &cobra.Command{
 project's namespace. Each addon emits a connection Secret that gets injected
 into the machine's pods as env vars (DATABASE_URL, REDIS_URL, etc.).
 
+Agent tips:
+  - Addon credentials are injected automatically. Do NOT set DATABASE_URL,
+    REDIS_URL, etc. via 'usectl envs set' — they will be overridden and
+    secrets may leak into the env vault.
+  - 'usectl addons catalog' lists every addon type and the exact env vars
+    it injects. Read this before deciding which addon a project needs.
+  - Addons live on the machine, not on individual apps. Every app pod in
+    the machine sees the same DATABASE_URL by default. Use 'usectl apps
+    addons' to scope an addon to a specific app instead.
+  - 'shareable' lets one machine read-link an addon owned by another of
+    your machines — useful for connecting a worker machine to the main
+    machine's DB without re-provisioning. Unlinking does not deprovision
+    the source.
+
 Modes:
   managed    Shared instance — free, doesn't count against project budget.
   dedicated  Workload runs inside the machine namespace with its own PVC.

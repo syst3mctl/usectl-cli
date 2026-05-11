@@ -1,5 +1,5 @@
 pkgbase = usectl
-	pkgdesc = CLI for the usectl self-hosted deployment platform
+	pkgdesc = CLI for the usectl deployment platform
 	pkgver = 1.0.0
 	pkgrel = 1
 	url = https://github.com/syst3mctl/usectl-cli
