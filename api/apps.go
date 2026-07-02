@@ -34,6 +34,13 @@ type ProjectApp struct {
 	Kind               string          `json:"kind"`
 	Command            *string         `json:"command,omitempty"`
 	Args               []string        `json:"args,omitempty"`
+	// Per-app pod sizing (mig 051 + mig 052). nil = app has not opted in
+	// (legacy default applies: 256 MiB / 250m / 2 GiB ephemeral).
+	MemoryMiB          *int            `json:"memory_mib,omitempty"`
+	CPUMillis          *int            `json:"cpu_millis,omitempty"`
+	StorageMiB         *int            `json:"storage_mib,omitempty"`
+	// mig 054: "rolling" or "recreate". nil = inherit default (rolling).
+	RolloutStrategy    *string         `json:"rollout_strategy,omitempty"`
 	LastDeployAt       *string         `json:"last_deploy_at,omitempty"`
 	CreatedAt          string          `json:"created_at"`
 	UpdatedAt          string          `json:"updated_at"`
@@ -152,6 +159,39 @@ func (c *Client) StopApp(projectID, appID string) error {
 
 func (c *Client) RestartApp(projectID, appID string) error {
 	return c.Post(fmt.Sprintf("/api/projects/%s/apps/%s/restart", projectID, appID), nil, nil)
+}
+
+// ResizeAppRequest is the body of PATCH /api/projects/{id}/apps/{appId}/resources.
+// All pointers are optional; pass only the dimension you want to change.
+type ResizeAppRequest struct {
+	MemoryMiB       *int    `json:"memory_mib,omitempty"`
+	CPUMillis       *int    `json:"cpu_millis,omitempty"`
+	StorageMiB      *int    `json:"storage_mib,omitempty"`
+	RolloutStrategy *string `json:"rollout_strategy,omitempty"` // mig 054
+}
+
+// ResizeAppResponse is the success envelope. Strategy is "in_place" when
+// live pods got the new size with no restart, or "rolling_restart" when
+// the kubelet rejected the in-place patch and the Deployment template was
+// updated (causing a rolling restart). "noop" and "deferred" are edge cases.
+type ResizeAppResponse struct {
+	App      ProjectApp `json:"app"`
+	Strategy string     `json:"strategy"`
+	Message  string     `json:"message"`
+}
+
+// ResizeApp issues PATCH /api/projects/{id}/apps/{appId}/resources. On
+// quota failure the backend returns a 409 with {"error":"plan_too_small",
+// "message": ..., "detail": ...}; the client surfaces the message through
+// the returned error (full detail is in the response body, not parsed here
+// — the CLI prints the message and exits non-zero).
+func (c *Client) ResizeApp(projectID, appID string, req ResizeAppRequest) (*ResizeAppResponse, error) {
+	var resp ResizeAppResponse
+	err := c.Patch(fmt.Sprintf("/api/projects/%s/apps/%s/resources", projectID, appID), req, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 func (c *Client) GetAppVariables(projectID, appID string) (*AppVariablesResponse, error) {

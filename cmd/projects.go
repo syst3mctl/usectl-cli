@@ -25,7 +25,7 @@ var projectsCmd = &cobra.Command{
 
 A machine (a.k.a. "project" in the API) represents a deployable application
 linked to a GitHub repository. Each machine gets its own Kubernetes namespace,
-optional PostgreSQL database, and optional S3 storage bucket (MinIO).
+optional PostgreSQL database, and optional S3 storage bucket.
 
 Subcommands:
   list         List all machines with status and features
@@ -886,7 +886,7 @@ func init() {
 	projectsCreateCmd.Flags().StringVar(&createType, "type", "service", "Project type: static or service")
 	projectsCreateCmd.Flags().IntVar(&createPort, "port", 80, "Container port")
 	projectsCreateCmd.Flags().BoolVar(&createDB, "db", false, "Provision a PostgreSQL database")
-	projectsCreateCmd.Flags().BoolVar(&createS3, "s3", false, "Provision S3 object storage (MinIO)")
+	projectsCreateCmd.Flags().BoolVar(&createS3, "s3", false, "Provision S3 object storage")
 	projectsCreateCmd.Flags().StringSliceVar(&createAddons, "addon", nil, "Add addon by type (database, s3, redis, nats). Can be repeated")
 	projectsCreateCmd.Flags().StringVar(&createGHToken, "github-token", "", "GitHub token for private repos")
 	projectsCreateCmd.Flags().Int64Var(&createInstallID, "installation-id", 0, "GitHub App installation ID (from 'usectl github installations')")

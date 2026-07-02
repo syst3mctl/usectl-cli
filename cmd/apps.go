@@ -10,6 +10,103 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// parseMemoryToMiB accepts human-friendly memory strings and returns mebibytes.
+// Forms accepted:
+//
+//	"1024"   → 1024 MiB (bare integer treated as MiB)
+//	"512Mi"  → 512 MiB
+//	"512M"   → 488 MiB (decimal megabytes; 512*1000*1000 / 2^20, rounded down)
+//	"1Gi"    → 1024 MiB
+//	"2G"     → 1907 MiB (decimal gigabytes)
+//
+// Empty string returns (0, nil) so callers can distinguish "not set" from "0".
+// Anything else is a parse error.
+func parseMemoryToMiB(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	// Strip trailing "B" if present so "MiB"/"GiB"/"MB"/"GB" all work.
+	if strings.HasSuffix(s, "B") || strings.HasSuffix(s, "b") {
+		s = s[:len(s)-1]
+	}
+	var unit string
+	var numStr string
+	switch {
+	case strings.HasSuffix(s, "Mi") || strings.HasSuffix(s, "mi"):
+		unit = "Mi"
+		numStr = s[:len(s)-2]
+	case strings.HasSuffix(s, "Gi") || strings.HasSuffix(s, "gi"):
+		unit = "Gi"
+		numStr = s[:len(s)-2]
+	case strings.HasSuffix(s, "M") || strings.HasSuffix(s, "m"):
+		unit = "M"
+		numStr = s[:len(s)-1]
+	case strings.HasSuffix(s, "G") || strings.HasSuffix(s, "g"):
+		unit = "G"
+		numStr = s[:len(s)-1]
+	default:
+		unit = ""
+		numStr = s
+	}
+	n, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid memory %q: %w", s, err)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("invalid memory %q: must be >= 0", s)
+	}
+	switch unit {
+	case "", "Mi":
+		return int(n), nil
+	case "Gi":
+		return int(n * 1024), nil
+	case "M":
+		return int(n * 1000 * 1000 / (1024 * 1024)), nil
+	case "G":
+		return int(n * 1000 * 1000 * 1000 / (1024 * 1024)), nil
+	}
+	return 0, fmt.Errorf("unknown memory unit in %q", s)
+}
+
+// parseCPUToMillis accepts human-friendly CPU strings and returns millicores.
+// Forms accepted:
+//
+//	"500"    → 500 m  (bare integer treated as millicores)
+//	"500m"   → 500 m
+//	"1"      → 1000 m (no suffix => whole-core float)... wait, ambiguity.
+//
+// To avoid the "is '1' one core or one millicore?" trap, the rule is:
+//
+//	bare integer or float WITHOUT 'm' suffix → whole cores (1 = 1000m, 0.5 = 500m)
+//	with 'm' suffix → millicores
+//
+// This matches kubectl's behavior. Empty string returns (0, nil).
+func parseCPUToMillis(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	if strings.HasSuffix(s, "m") || strings.HasSuffix(s, "M") {
+		n, err := strconv.Atoi(s[:len(s)-1])
+		if err != nil {
+			return 0, fmt.Errorf("invalid cpu %q: %w", s, err)
+		}
+		if n < 0 {
+			return 0, fmt.Errorf("invalid cpu %q: must be >= 0", s)
+		}
+		return n, nil
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid cpu %q: %w", s, err)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("invalid cpu %q: must be >= 0", s)
+	}
+	return int(n * 1000), nil
+}
+
 var appsCmd = &cobra.Command{
 	Use:     "apps",
 	Aliases: []string{"app"},
@@ -648,6 +745,119 @@ var appsInsightsCmd = &cobra.Command{
 	},
 }
 
+var (
+	appResizeMemory   string
+	appResizeCPU      string
+	appResizeStorage  string
+	appResizeStrategy string // mig 054
+)
+
+var appsResizeCmd = &cobra.Command{
+	Use:   "resize <project-id> <app-id>",
+	Short: "Resize a single app's pod (memory / CPU)",
+	Long: `Change how much memory and/or CPU each replica of this app gets.
+
+The platform tries an in-place resize first — when the kubelet accepts, live
+pods get the new size with no restart and no downtime. If the kubelet rejects
+(common reasons: in-place resize not supported by the runtime, working set
+above the new memory limit), the deployer falls back to patching the
+Deployment template, which triggers a rolling restart.
+
+The namespace ResourceQuota (sized from the project's plan) is the only upper
+bound — bigger pods leave less room for other apps and addons in the same
+project. A 409 response includes a precise breakdown of where the budget goes.
+
+Use --strategy to switch the Deployment's rollout strategy:
+  rolling  (default) — surges a new pod beside the old. Zero downtime when the
+                       cluster has room for both pods at once.
+  recreate           — kills the old pod, then starts the new. No surge
+                       requirement; brief downtime (~10–30s) per deploy.
+
+Examples:
+  usectl apps resize <proj> <app> --memory 1Gi --cpu 1 --storage 4Gi
+  usectl apps resize <proj> <app> --memory 512Mi
+  usectl apps resize <proj> <app> --cpu 500m
+  usectl apps resize <proj> <app> --storage 8Gi
+  usectl apps resize <proj> <app> --strategy recreate
+  usectl apps resize <proj> <app> --memory 2Gi --strategy recreate`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if appResizeMemory == "" && appResizeCPU == "" && appResizeStorage == "" && appResizeStrategy == "" {
+			return fmt.Errorf("specify at least one of --memory, --cpu, --storage, or --strategy")
+		}
+		req := api.ResizeAppRequest{}
+		if appResizeMemory != "" {
+			mib, err := parseMemoryToMiB(appResizeMemory)
+			if err != nil {
+				return err
+			}
+			if mib < 64 {
+				return fmt.Errorf("--memory must be at least 64Mi (got %dMi)", mib)
+			}
+			req.MemoryMiB = &mib
+		}
+		if appResizeCPU != "" {
+			millis, err := parseCPUToMillis(appResizeCPU)
+			if err != nil {
+				return err
+			}
+			if millis < 50 {
+				return fmt.Errorf("--cpu must be at least 50m (got %dm)", millis)
+			}
+			req.CPUMillis = &millis
+		}
+		if appResizeStorage != "" {
+			// Storage shares the same human-friendly parser as memory —
+			// both are byte quantities; "2Gi", "512Mi", "4G" all valid.
+			mib, err := parseMemoryToMiB(appResizeStorage)
+			if err != nil {
+				return err
+			}
+			if mib < 256 {
+				return fmt.Errorf("--storage must be at least 256Mi (got %dMi)", mib)
+			}
+			req.StorageMiB = &mib
+		}
+		if appResizeStrategy != "" {
+			if appResizeStrategy != "rolling" && appResizeStrategy != "recreate" {
+				return fmt.Errorf("--strategy must be 'rolling' or 'recreate' (got %q)", appResizeStrategy)
+			}
+			s := appResizeStrategy
+			req.RolloutStrategy = &s
+		}
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		resp, err := client.ResizeApp(args[0], args[1], req)
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return output.JSON(resp)
+		}
+		mem := "unchanged"
+		if resp.App.MemoryMiB != nil {
+			mem = fmt.Sprintf("%d MiB", *resp.App.MemoryMiB)
+		}
+		cpu := "unchanged"
+		if resp.App.CPUMillis != nil {
+			cpu = fmt.Sprintf("%dm", *resp.App.CPUMillis)
+		}
+		storage := "platform default"
+		if resp.App.StorageMiB != nil {
+			storage = fmt.Sprintf("%d MiB", *resp.App.StorageMiB)
+		}
+		rollout := "rolling (default)"
+		if resp.App.RolloutStrategy != nil {
+			rollout = *resp.App.RolloutStrategy
+		}
+		fmt.Printf("App %s resized → memory=%s cpu=%s storage=%s rollout=%s\n", resp.App.Name, mem, cpu, storage, rollout)
+		fmt.Printf("Strategy: %s — %s\n", resp.Strategy, resp.Message)
+		return nil
+	},
+}
+
 func init() {
 	// create flags
 	appsCreateCmd.Flags().StringVar(&appCreateName, "name", "", "App name (required)")
@@ -680,6 +890,12 @@ func init() {
 	appsUpdateCmd.Flags().StringVar(&appUpdateCommand, "command", "", "Override container command")
 	appsUpdateCmd.Flags().StringSliceVar(&appUpdateArgs, "args", nil, "Container args")
 
+	// resize flags
+	appsResizeCmd.Flags().StringVar(&appResizeMemory, "memory", "", "Per-pod memory (e.g. 1Gi, 512Mi, 768)")
+	appsResizeCmd.Flags().StringVar(&appResizeCPU, "cpu", "", "Per-pod CPU (e.g. 1, 0.5, 500m)")
+	appsResizeCmd.Flags().StringVar(&appResizeStorage, "storage", "", "Per-pod ephemeral storage (e.g. 4Gi, 2Gi). Default 2 GiB.")
+	appsResizeCmd.Flags().StringVar(&appResizeStrategy, "strategy", "", "Rollout strategy: 'rolling' (zero-downtime) or 'recreate' (no surge, brief downtime)")
+
 	// envs subgroup
 	appsEnvsCmd.AddCommand(appsEnvsListCmd, appsEnvsSetCmd, appsEnvsDeleteCmd)
 	// addons subgroup
@@ -687,7 +903,7 @@ func init() {
 
 	appsCmd.AddCommand(
 		appsListCmd, appsCreateCmd, appsUpdateCmd, appsDeleteCmd,
-		appsStartCmd, appsStopCmd, appsRestartCmd,
+		appsStartCmd, appsStopCmd, appsRestartCmd, appsResizeCmd,
 		appsInternalCmd, appsVariablesCmd, appsRevealCmd,
 		appsEnvsCmd, appsAddonsCmd,
 		appsTrafficCmd, appsInsightsCmd,
