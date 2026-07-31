@@ -207,7 +207,43 @@ var (
 	appCreateKind        string
 	appCreateCommand     string
 	appCreateArgs        []string
+	appCreateExtraPorts  []string
+	// mig 060: metrics scraping.
+	appCreateMetrics     bool
+	appCreateMetricsPort int
+	appCreateMetricsPath string
 )
+
+// parseExtraPorts parses repeatable --extra-port specs into AppPort values.
+// Accepted forms: "name:port/proto", "name:port", "port/proto", "port"
+// (e.g. "grpc:9094/tcp", "9094"). Name/protocol defaults are filled in by the
+// backend, which also validates ranges + uniqueness — this parser is lenient.
+func parseExtraPorts(specs []string) ([]api.AppPort, error) {
+	out := make([]api.AppPort, 0, len(specs))
+	for _, raw := range specs {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		proto := ""
+		if i := strings.LastIndex(s, "/"); i >= 0 {
+			proto = strings.ToUpper(strings.TrimSpace(s[i+1:]))
+			s = s[:i]
+		}
+		name := ""
+		portStr := s
+		if i := strings.Index(s, ":"); i >= 0 {
+			name = strings.TrimSpace(s[:i])
+			portStr = strings.TrimSpace(s[i+1:])
+		}
+		port, err := strconv.Atoi(strings.TrimSpace(portStr))
+		if err != nil {
+			return nil, fmt.Errorf("invalid --extra-port %q: expected [name:]port[/proto]", raw)
+		}
+		out = append(out, api.AppPort{Name: name, Port: port, Protocol: proto})
+	}
+	return out, nil
+}
 
 var appsCreateCmd = &cobra.Command{
 	Use:   "create <project-id>",
@@ -250,6 +286,20 @@ networking.`,
 			isPublic := !appCreatePrivate
 			req.IsPublic = &isPublic
 		}
+		if len(appCreateExtraPorts) > 0 {
+			eps, perr := parseExtraPorts(appCreateExtraPorts)
+			if perr != nil {
+				return perr
+			}
+			req.ExtraPorts = eps
+		}
+		// mig 060: metrics scraping. The port is only sent when explicitly
+		// given — omitted means "follow the app's primary port".
+		req.MetricsEnabled = appCreateMetrics
+		req.MetricsPath = appCreateMetricsPath
+		if appCreateMetricsPort > 0 {
+			req.MetricsPort = &appCreateMetricsPort
+		}
 		app, err := client.CreateProjectApp(args[0], req)
 		if err != nil {
 			return err
@@ -275,6 +325,11 @@ var (
 	appUpdateKind      string
 	appUpdateCommand   string
 	appUpdateArgs      []string
+	appUpdateExtraPorts []string
+	// mig 060: metrics scraping.
+	appUpdateMetrics     bool
+	appUpdateMetricsPort int
+	appUpdateMetricsPath string
 )
 
 var appsUpdateCmd = &cobra.Command{
@@ -323,6 +378,25 @@ var appsUpdateCmd = &cobra.Command{
 		}
 		if cmd.Flags().Changed("args") {
 			req.Args = appUpdateArgs
+		}
+		if cmd.Flags().Changed("extra-port") {
+			eps, perr := parseExtraPorts(appUpdateExtraPorts)
+			if perr != nil {
+				return perr
+			}
+			// Non-nil (incl. empty) replaces the list; empty clears all extras.
+			req.ExtraPorts = &eps
+		}
+		// mig 060: metrics scraping. --metrics-port 0 resets to the app's
+		// primary port; --metrics-path "" resets to /metrics.
+		if cmd.Flags().Changed("metrics") {
+			req.MetricsEnabled = &appUpdateMetrics
+		}
+		if cmd.Flags().Changed("metrics-port") {
+			req.MetricsPort = &appUpdateMetricsPort
+		}
+		if cmd.Flags().Changed("metrics-path") {
+			req.MetricsPath = &appUpdateMetricsPath
 		}
 		app, warning, err := client.UpdateProjectApp(args[0], args[1], req)
 		if err != nil {
@@ -423,15 +497,28 @@ var appsInternalCmd = &cobra.Command{
 		if jsonOutput {
 			return output.JSON(addr)
 		}
-		output.Table([]string{"FIELD", "VALUE"}, [][]string{
+		rows := [][]string{
 			{"Service", addr.ServiceName},
 			{"Namespace", addr.Namespace},
-			{"Port", strconv.Itoa(addr.Port)},
-			{"Short DNS", addr.ShortDNS},
-			{"FQDN", addr.FQDN},
-			{"URL (short)", addr.URLShort},
-			{"URL (FQDN)", addr.URLFQDN},
-		})
+		}
+		if len(addr.Ports) > 0 {
+			// mig 059: one address per port (primary :80 + any extras).
+			for _, p := range addr.Ports {
+				rows = append(rows,
+					[]string{fmt.Sprintf("%s (%d/%s)", p.Name, p.Port, p.Protocol), p.URLShort},
+					[]string{"  FQDN", p.URLFQDN},
+				)
+			}
+		} else {
+			rows = append(rows,
+				[]string{"Port", strconv.Itoa(addr.Port)},
+				[]string{"Short DNS", addr.ShortDNS},
+				[]string{"FQDN", addr.FQDN},
+				[]string{"URL (short)", addr.URLShort},
+				[]string{"URL (FQDN)", addr.URLFQDN},
+			)
+		}
+		output.Table([]string{"FIELD", "VALUE"}, rows)
 		return nil
 	},
 }
@@ -873,6 +960,10 @@ func init() {
 	appsCreateCmd.Flags().StringVar(&appCreateKind, "kind", "web", "Pod kind: web, worker, release")
 	appsCreateCmd.Flags().StringVar(&appCreateCommand, "command", "", "Override container command (required for worker/release)")
 	appsCreateCmd.Flags().StringSliceVar(&appCreateArgs, "arg", nil, "Container arg (repeatable)")
+	appsCreateCmd.Flags().StringArrayVar(&appCreateExtraPorts, "extra-port", nil, "Extra cluster-internal-only port [name:]port[/proto], e.g. grpc:9094/tcp (repeatable, web pods only)")
+	appsCreateCmd.Flags().BoolVar(&appCreateMetrics, "metrics", false, "Scrape this app's /metrics endpoint into the platform metrics store (web pods only)")
+	appsCreateCmd.Flags().IntVar(&appCreateMetricsPort, "metrics-port", 0, "Port serving metrics (default: the app's primary port; must be the primary port or an --extra-port)")
+	appsCreateCmd.Flags().StringVar(&appCreateMetricsPath, "metrics-path", "", "Path serving Prometheus text format (default /metrics)")
 	appsCreateCmd.MarkFlagRequired("name")
 	appsCreateCmd.MarkFlagRequired("repo")
 
@@ -889,6 +980,10 @@ func init() {
 	appsUpdateCmd.Flags().StringVar(&appUpdateKind, "kind", "", "Pod kind: web, worker, release")
 	appsUpdateCmd.Flags().StringVar(&appUpdateCommand, "command", "", "Override container command")
 	appsUpdateCmd.Flags().StringSliceVar(&appUpdateArgs, "args", nil, "Container args")
+	appsUpdateCmd.Flags().StringArrayVar(&appUpdateExtraPorts, "extra-port", nil, "Replace extra cluster-internal-only ports; [name:]port[/proto] (repeatable, web pods only)")
+	appsUpdateCmd.Flags().BoolVar(&appUpdateMetrics, "metrics", false, "Enable/disable scraping this app's /metrics endpoint")
+	appsUpdateCmd.Flags().IntVar(&appUpdateMetricsPort, "metrics-port", 0, "Port serving metrics (0 resets to the app's primary port)")
+	appsUpdateCmd.Flags().StringVar(&appUpdateMetricsPath, "metrics-path", "", "Path serving Prometheus text format (empty resets to /metrics)")
 
 	// resize flags
 	appsResizeCmd.Flags().StringVar(&appResizeMemory, "memory", "", "Per-pod memory (e.g. 1Gi, 512Mi, 768)")

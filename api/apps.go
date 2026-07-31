@@ -41,9 +41,22 @@ type ProjectApp struct {
 	StorageMiB         *int            `json:"storage_mib,omitempty"`
 	// mig 054: "rolling" or "recreate". nil = inherit default (rolling).
 	RolloutStrategy    *string         `json:"rollout_strategy,omitempty"`
+	// mig 059: extra cluster-internal-only ports.
+	ExtraPorts         []AppPort       `json:"extra_ports,omitempty"`
+	// mig 060: metrics scraping. MetricsPort nil = the app's primary port.
+	MetricsEnabled     bool            `json:"metrics_enabled"`
+	MetricsPort        *int            `json:"metrics_port,omitempty"`
+	MetricsPath        string          `json:"metrics_path,omitempty"`
 	LastDeployAt       *string         `json:"last_deploy_at,omitempty"`
 	CreatedAt          string          `json:"created_at"`
 	UpdatedAt          string          `json:"updated_at"`
+}
+
+// AppPort is one additional cluster-internal-only port on an app pod (mig 059).
+type AppPort struct {
+	Name     string `json:"name"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
 }
 
 type CreateProjectAppRequest struct {
@@ -62,6 +75,12 @@ type CreateProjectAppRequest struct {
 	Kind              string   `json:"kind,omitempty"`
 	Command           string   `json:"command,omitempty"`
 	Args              []string `json:"args,omitempty"`
+	// mig 059: extra cluster-internal-only ports (web pods only).
+	ExtraPorts        []AppPort `json:"extra_ports,omitempty"`
+	// mig 060: scrape this app's own /metrics endpoint (web pods only).
+	MetricsEnabled    bool      `json:"metrics_enabled,omitempty"`
+	MetricsPort       *int      `json:"metrics_port,omitempty"`
+	MetricsPath       string    `json:"metrics_path,omitempty"`
 }
 
 type UpdateProjectAppRequest struct {
@@ -79,16 +98,34 @@ type UpdateProjectAppRequest struct {
 	Kind              *string  `json:"kind,omitempty"`
 	Command           *string  `json:"command,omitempty"`
 	Args              []string `json:"args,omitempty"`
+	// mig 059: nil = leave unchanged; non-nil (incl. empty) replaces the
+	// extra-port list wholesale.
+	ExtraPorts        *[]AppPort `json:"extra_ports,omitempty"`
+	// mig 060: nil = leave unchanged. MetricsPort 0 resets to the app's
+	// primary port; MetricsPath "" resets to /metrics.
+	MetricsEnabled    *bool      `json:"metrics_enabled,omitempty"`
+	MetricsPort       *int       `json:"metrics_port,omitempty"`
+	MetricsPath       *string    `json:"metrics_path,omitempty"`
+}
+
+// AppAddressPort is one port entry in an app's internal address (mig 059).
+type AppAddressPort struct {
+	Name     string `json:"name"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+	URLShort string `json:"url_short"`
+	URLFQDN  string `json:"url_fqdn"`
 }
 
 type AppInternalAddress struct {
-	ServiceName string `json:"service_name"`
-	Namespace   string `json:"namespace"`
-	Port        int    `json:"port"`
-	ShortDNS    string `json:"short_dns"`
-	FQDN        string `json:"fqdn"`
-	URLShort    string `json:"url_short"`
-	URLFQDN     string `json:"url_fqdn"`
+	ServiceName string           `json:"service_name"`
+	Namespace   string           `json:"namespace"`
+	Port        int              `json:"port"`
+	ShortDNS    string           `json:"short_dns"`
+	FQDN        string           `json:"fqdn"`
+	URLShort    string           `json:"url_short"`
+	URLFQDN     string           `json:"url_fqdn"`
+	Ports       []AppAddressPort `json:"ports,omitempty"`
 }
 
 type VariableEntry struct {
