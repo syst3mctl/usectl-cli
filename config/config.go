@@ -15,9 +15,13 @@ const (
 
 // Config holds persistent CLI configuration.
 type Config struct {
-	Token       string `json:"token"`
-	APIURL      string `json:"api_url"`
-	GitHubToken string `json:"github_token,omitempty"`
+	Token string `json:"token"`
+	// RefreshToken is the rotating, revocable credential used to mint a new
+	// access token once the 24h one expires. Rotated on every refresh, so
+	// the value on disk changes over time and must be re-saved each time.
+	RefreshToken string `json:"refresh_token,omitempty"`
+	APIURL       string `json:"api_url"`
+	GitHubToken  string `json:"github_token,omitempty"`
 }
 
 // configPath returns ~/.usectl/config.json

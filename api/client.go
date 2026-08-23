@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,15 @@ type Client struct {
 	BaseURL    string
 	Token      string
 	httpClient *http.Client
+
+	// RefreshToken is the rotating credential used to transparently mint a
+	// new access token when the current one has expired. Empty for clients
+	// built before the user last logged in, which simply behave as before.
+	RefreshToken string
+
+	// refreshing guards against recursion: the refresh call itself must
+	// never trigger another refresh on its own 401.
+	refreshing bool
 }
 
 // NewClient creates a client from the saved config, with optional overrides.
@@ -31,8 +41,9 @@ func NewClient(apiURLOverride string) (*Client, error) {
 	}
 
 	return &Client{
-		BaseURL: baseURL,
-		Token:   cfg.Token,
+		BaseURL:      baseURL,
+		Token:        cfg.Token,
+		RefreshToken: cfg.RefreshToken,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -74,8 +85,70 @@ func (c *Client) do(method, path string, body interface{}, result interface{}) e
 	return c.doWithHeaders(method, path, body, result, nil)
 }
 
-// doWithHeaders performs an HTTP request with extra headers and decodes the JSON response.
+// doWithHeaders performs an HTTP request with extra headers and decodes the
+// JSON response, transparently refreshing an expired access token once.
+//
+// The retry is what makes a long-lived CLI session work: the access token
+// lasts 24h, so any command run the next day would otherwise fail with 401
+// and force a manual `usectl login`.
 func (c *Client) doWithHeaders(method, path string, body interface{}, result interface{}, headers map[string]string) error {
+	err := c.doOnce(method, path, body, result, headers)
+	if !c.shouldRetryWithRefresh(err) {
+		return err
+	}
+	if rErr := c.refreshAccessToken(); rErr != nil {
+		// Surface the original 401, not the refresh failure — "your session
+		// expired, log in again" is the actionable message.
+		return err
+	}
+	return c.doOnce(method, path, body, result, headers)
+}
+
+// shouldRetryWithRefresh reports whether err is an expired-session 401 that a
+// token refresh could plausibly fix.
+func (c *Client) shouldRetryWithRefresh(err error) bool {
+	if err == nil || c.refreshing || c.RefreshToken == "" {
+		return false
+	}
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized
+}
+
+// refreshAccessToken exchanges the stored refresh token for a new access
+// token and persists both. The server rotates the refresh token on every
+// call, so the new value MUST be written to disk or the next refresh will
+// look like a replay and revoke the whole session family.
+func (c *Client) refreshAccessToken() error {
+	c.refreshing = true
+	defer func() { c.refreshing = false }()
+
+	resp, err := c.Refresh(c.RefreshToken)
+	if err != nil {
+		return err
+	}
+
+	c.Token = resp.Token
+	c.RefreshToken = resp.RefreshToken
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	cfg.Token = resp.Token
+	cfg.RefreshToken = resp.RefreshToken
+	return config.Save(cfg)
+}
+
+// postNoRetry issues a POST that never attempts a token refresh. Used by the
+// auth endpoints themselves.
+func (c *Client) postNoRetry(path string, body interface{}, result interface{}) error {
+	c.refreshing = true
+	defer func() { c.refreshing = false }()
+	return c.doOnce(http.MethodPost, path, body, result, nil)
+}
+
+// doOnce performs a single HTTP request with no refresh handling.
+func (c *Client) doOnce(method, path string, body interface{}, result interface{}, headers map[string]string) error {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -130,7 +203,24 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, result int
 }
 
 // doRaw performs an HTTP request and returns the raw response (for binary downloads).
+// doRaw performs a request returning the raw response, refreshing an expired
+// access token once. Binary downloads go through here.
 func (c *Client) doRaw(method, path string) (*http.Response, error) {
+	resp, err := c.doRawOnce(method, path)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized && !c.refreshing && c.RefreshToken != "" {
+		resp.Body.Close()
+		if rErr := c.refreshAccessToken(); rErr != nil {
+			return nil, &APIError{StatusCode: http.StatusUnauthorized, Message: "session expired — run 'usectl login'"}
+		}
+		return c.doRawOnce(method, path)
+	}
+	return resp, nil
+}
+
+func (c *Client) doRawOnce(method, path string) (*http.Response, error) {
 	url := c.BaseURL + path
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {

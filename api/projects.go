@@ -126,11 +126,11 @@ type ContainerStatus struct {
 }
 
 type DiagnosticResponse struct {
-	PodName         string            `json:"pod_name"`
-	Phase           string            `json:"phase"`
-	ContainerStatus *ContainerStatus  `json:"container_status,omitempty"`
+	PodName         string             `json:"pod_name"`
+	Phase           string             `json:"phase"`
+	ContainerStatus *ContainerStatus   `json:"container_status,omitempty"`
 	Events          []DiagnosticsEvent `json:"events"`
-	PreviousLogs    string            `json:"previous_logs,omitempty"`
+	PreviousLogs    string             `json:"previous_logs,omitempty"`
 }
 
 func (c *Client) GetDiagnostics(id string) (*DiagnosticResponse, error) {
@@ -216,15 +216,32 @@ func (c *Client) StreamRuntimeLogs(id string, lines int, writer io.Writer) error
 		path = fmt.Sprintf("%s&lines=%d", path, lines)
 	}
 
-	req, err := http.NewRequest("GET", c.BaseURL+path, nil)
+	// Refresh before opening the stream rather than after a 401: a follow
+	// stream can stay open for hours, and reconnecting mid-tail would drop
+	// output. http.DefaultClient (not c.httpClient) on purpose — the 30s
+	// client timeout would cut the stream off.
+	doStream := func() (*http.Response, error) {
+		req, err := http.NewRequest("GET", c.BaseURL+path, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+		return http.DefaultClient.Do(req)
+	}
+
+	resp, err := doStream()
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
+	if resp.StatusCode == http.StatusUnauthorized && !c.refreshing && c.RefreshToken != "" {
+		resp.Body.Close()
+		if rErr := c.refreshAccessToken(); rErr != nil {
+			return fmt.Errorf("session expired — run 'usectl login'")
+		}
+		resp, err = doStream()
+		if err != nil {
+			return err
+		}
 	}
 	defer resp.Body.Close()
 

@@ -43,6 +43,7 @@ Use --api-url to connect to a different platform instance.`,
 		// Save token and API URL.
 		cfg, _ := config.Load()
 		cfg.Token = resp.Token
+		cfg.RefreshToken = resp.RefreshToken
 		if apiURL != "" {
 			cfg.APIURL = apiURL
 		}
@@ -84,6 +85,7 @@ admin approval before you can log in (depends on platform configuration).`,
 
 		cfg, _ := config.Load()
 		cfg.Token = resp.Token
+		cfg.RefreshToken = resp.RefreshToken
 		if apiURL != "" {
 			cfg.APIURL = apiURL
 		}
