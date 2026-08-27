@@ -313,18 +313,18 @@ networking.`,
 }
 
 var (
-	appUpdateBranch    string
-	appUpdateDomain    string
-	appUpdatePort      int
-	appUpdateReplicas  int
-	appUpdateAutoDep   bool
-	appUpdatePreview   bool
-	appUpdatePrivate   bool
-	appUpdateDotenvP   string
-	appUpdateDotenvA   bool
-	appUpdateKind      string
-	appUpdateCommand   string
-	appUpdateArgs      []string
+	appUpdateBranch     string
+	appUpdateDomain     string
+	appUpdatePort       int
+	appUpdateReplicas   int
+	appUpdateAutoDep    bool
+	appUpdatePreview    bool
+	appUpdatePrivate    bool
+	appUpdateDotenvP    string
+	appUpdateDotenvA    bool
+	appUpdateKind       string
+	appUpdateCommand    string
+	appUpdateArgs       []string
 	appUpdateExtraPorts []string
 	// mig 060: metrics scraping.
 	appUpdateMetrics     bool
@@ -619,7 +619,7 @@ var appsEnvsListCmd = &cobra.Command{
 			if v.Overridden {
 				source += " (overridden)"
 			}
-			rows[i] = []string{v.Key, v.Value, source}
+			rows[i] = []string{v.Key, v.DisplayValue(), source}
 		}
 		output.Table([]string{"KEY", "VALUE", "SOURCE"}, rows)
 		return nil
@@ -945,6 +945,41 @@ Examples:
 	},
 }
 
+var appsEnvsProtectCmd = &cobra.Command{
+	Use:   "protect <project-id> <app-id> <protect|open> KEY [KEY ...]",
+	Short: "Mark per-app env vars protected (write-only) or open",
+	Long: `Control whether a per-app variable's value can be read back.
+
+A protected variable is write-only: no read surface returns it, including
+` + "`usectl apps envs list --json`" + `, which emits "value": null and
+"protected": true so a consumer can fail loudly instead of injecting an
+empty credential. Deployments are unaffected.`,
+	Example: `  usectl apps envs protect a8f15889 web protect STRIPE_SECRET_KEY
+  usectl apps envs protect a8f15889 web open NEXT_PUBLIC_API_URL`,
+	Args: cobra.MinimumNArgs(4),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		protected, err := protectionArg(strings.ToLower(args[2]))
+		if err != nil {
+			return err
+		}
+		for _, key := range args[3:] {
+			if err := client.SetAppVarProtection(args[0], args[1], key, protected); err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+		}
+		state := "protected (write-only)"
+		if !protected {
+			state = "open"
+		}
+		fmt.Printf("✓ Marked %d variable(s) %s on app %s\n", len(args)-3, state, args[1])
+		return nil
+	},
+}
+
 func init() {
 	// create flags
 	appsCreateCmd.Flags().StringVar(&appCreateName, "name", "", "App name (required)")
@@ -992,7 +1027,7 @@ func init() {
 	appsResizeCmd.Flags().StringVar(&appResizeStrategy, "strategy", "", "Rollout strategy: 'rolling' (zero-downtime) or 'recreate' (no surge, brief downtime)")
 
 	// envs subgroup
-	appsEnvsCmd.AddCommand(appsEnvsListCmd, appsEnvsSetCmd, appsEnvsDeleteCmd)
+	appsEnvsCmd.AddCommand(appsEnvsListCmd, appsEnvsSetCmd, appsEnvsDeleteCmd, appsEnvsProtectCmd)
 	// addons subgroup
 	appsAddonsCmd.AddCommand(appsAddonsListCmd, appsAddonsAttachCmd, appsAddonsDetachCmd)
 

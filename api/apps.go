@@ -36,20 +36,20 @@ type ProjectApp struct {
 	Args               []string        `json:"args,omitempty"`
 	// Per-app pod sizing (mig 051 + mig 052). nil = app has not opted in
 	// (legacy default applies: 256 MiB / 250m / 2 GiB ephemeral).
-	MemoryMiB          *int            `json:"memory_mib,omitempty"`
-	CPUMillis          *int            `json:"cpu_millis,omitempty"`
-	StorageMiB         *int            `json:"storage_mib,omitempty"`
+	MemoryMiB  *int `json:"memory_mib,omitempty"`
+	CPUMillis  *int `json:"cpu_millis,omitempty"`
+	StorageMiB *int `json:"storage_mib,omitempty"`
 	// mig 054: "rolling" or "recreate". nil = inherit default (rolling).
-	RolloutStrategy    *string         `json:"rollout_strategy,omitempty"`
+	RolloutStrategy *string `json:"rollout_strategy,omitempty"`
 	// mig 059: extra cluster-internal-only ports.
-	ExtraPorts         []AppPort       `json:"extra_ports,omitempty"`
+	ExtraPorts []AppPort `json:"extra_ports,omitempty"`
 	// mig 060: metrics scraping. MetricsPort nil = the app's primary port.
-	MetricsEnabled     bool            `json:"metrics_enabled"`
-	MetricsPort        *int            `json:"metrics_port,omitempty"`
-	MetricsPath        string          `json:"metrics_path,omitempty"`
-	LastDeployAt       *string         `json:"last_deploy_at,omitempty"`
-	CreatedAt          string          `json:"created_at"`
-	UpdatedAt          string          `json:"updated_at"`
+	MetricsEnabled bool    `json:"metrics_enabled"`
+	MetricsPort    *int    `json:"metrics_port,omitempty"`
+	MetricsPath    string  `json:"metrics_path,omitempty"`
+	LastDeployAt   *string `json:"last_deploy_at,omitempty"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
 }
 
 // AppPort is one additional cluster-internal-only port on an app pod (mig 059).
@@ -76,11 +76,11 @@ type CreateProjectAppRequest struct {
 	Command           string   `json:"command,omitempty"`
 	Args              []string `json:"args,omitempty"`
 	// mig 059: extra cluster-internal-only ports (web pods only).
-	ExtraPorts        []AppPort `json:"extra_ports,omitempty"`
+	ExtraPorts []AppPort `json:"extra_ports,omitempty"`
 	// mig 060: scrape this app's own /metrics endpoint (web pods only).
-	MetricsEnabled    bool      `json:"metrics_enabled,omitempty"`
-	MetricsPort       *int      `json:"metrics_port,omitempty"`
-	MetricsPath       string    `json:"metrics_path,omitempty"`
+	MetricsEnabled bool   `json:"metrics_enabled,omitempty"`
+	MetricsPort    *int   `json:"metrics_port,omitempty"`
+	MetricsPath    string `json:"metrics_path,omitempty"`
 }
 
 type UpdateProjectAppRequest struct {
@@ -100,12 +100,12 @@ type UpdateProjectAppRequest struct {
 	Args              []string `json:"args,omitempty"`
 	// mig 059: nil = leave unchanged; non-nil (incl. empty) replaces the
 	// extra-port list wholesale.
-	ExtraPorts        *[]AppPort `json:"extra_ports,omitempty"`
+	ExtraPorts *[]AppPort `json:"extra_ports,omitempty"`
 	// mig 060: nil = leave unchanged. MetricsPort 0 resets to the app's
 	// primary port; MetricsPath "" resets to /metrics.
-	MetricsEnabled    *bool      `json:"metrics_enabled,omitempty"`
-	MetricsPort       *int       `json:"metrics_port,omitempty"`
-	MetricsPath       *string    `json:"metrics_path,omitempty"`
+	MetricsEnabled *bool   `json:"metrics_enabled,omitempty"`
+	MetricsPort    *int    `json:"metrics_port,omitempty"`
+	MetricsPath    *string `json:"metrics_path,omitempty"`
 }
 
 // AppAddressPort is one port entry in an app's internal address (mig 059).
@@ -142,10 +142,25 @@ type AppVariablesResponse struct {
 }
 
 type AppEnvVarEntry struct {
-	Key        string `json:"key"`
-	Value      string `json:"value"`
-	Source     string `json:"source"`
-	Overridden bool   `json:"overridden,omitempty"`
+	Key string `json:"key"`
+	// Value is nil when the variable is Protected — the API deliberately
+	// sends JSON null rather than "" so a caller piping `--json` into a
+	// .env file can tell "not allowed to read this" apart from "set to
+	// empty" and fail loudly instead of writing a blank credential.
+	Value      *string `json:"value"`
+	Source     string  `json:"source"`
+	Overridden bool    `json:"overridden,omitempty"`
+	Protected  bool    `json:"protected,omitempty"`
+}
+
+// DisplayValue renders one entry for human-readable output. Protected values
+// are never printed — not even partially — because this text lands in
+// terminals, CI logs and scrollback.
+func (e AppEnvVarEntry) DisplayValue() string {
+	if e.Protected || e.Value == nil {
+		return "(protected)"
+	}
+	return *e.Value
 }
 
 type AppEnvsResponse struct {
@@ -168,9 +183,9 @@ func (c *Client) CreateProjectApp(projectID string, req CreateProjectAppRequest)
 // {"app": ProjectApp, "warning"?: string, "detached_domains"?: int}.
 func (c *Client) UpdateProjectApp(projectID, appID string, req UpdateProjectAppRequest) (*ProjectApp, string, error) {
 	var resp struct {
-		App              ProjectApp `json:"app"`
-		Warning          string     `json:"warning,omitempty"`
-		DetachedDomains  int        `json:"detached_domains,omitempty"`
+		App             ProjectApp `json:"app"`
+		Warning         string     `json:"warning,omitempty"`
+		DetachedDomains int        `json:"detached_domains,omitempty"`
 	}
 	err := c.Patch(fmt.Sprintf("/api/projects/%s/apps/%s", projectID, appID), req, &resp)
 	return &resp.App, resp.Warning, err
@@ -282,26 +297,26 @@ func (c *Client) DetachAppAddon(projectID, appID, addonID string) error {
 
 // AppTraffic mirrors the trafficResponse JSON from /traffic.
 type AppTraffic struct {
-	RequestsTotal          int64              `json:"requests_total"`
-	RequestsByCode         map[string]int64   `json:"requests_by_code"`
-	RequestsByCodeDetailed map[string]int64   `json:"requests_by_code_detailed"`
-	RequestsByMethod       map[string]int64   `json:"requests_by_method"`
-	RequestsByProtocol     map[string]int64   `json:"requests_by_protocol"`
-	Requests5m             int64              `json:"requests_5m"`
-	RequestRate            float64            `json:"request_rate"`
-	AvgDurationMs          float64            `json:"avg_duration_ms"`
-	P50Ms                  float64            `json:"p50_ms"`
-	P95Ms                  float64            `json:"p95_ms"`
-	P99Ms                  float64            `json:"p99_ms"`
-	BytesInRate            float64            `json:"bytes_in_rate"`
-	BytesOutRate           float64            `json:"bytes_out_rate"`
-	BytesInTotal           int64              `json:"bytes_in_total"`
-	BytesOutTotal          int64              `json:"bytes_out_total"`
-	OpenConnections        int64              `json:"open_connections"`
-	WindowSeconds          float64            `json:"window_seconds"`
-	NoRouters              bool               `json:"no_routers,omitempty"`
-	RouterRegex            string             `json:"router_regex"`
-	GrafanaURL             string             `json:"grafana_url,omitempty"`
+	RequestsTotal          int64            `json:"requests_total"`
+	RequestsByCode         map[string]int64 `json:"requests_by_code"`
+	RequestsByCodeDetailed map[string]int64 `json:"requests_by_code_detailed"`
+	RequestsByMethod       map[string]int64 `json:"requests_by_method"`
+	RequestsByProtocol     map[string]int64 `json:"requests_by_protocol"`
+	Requests5m             int64            `json:"requests_5m"`
+	RequestRate            float64          `json:"request_rate"`
+	AvgDurationMs          float64          `json:"avg_duration_ms"`
+	P50Ms                  float64          `json:"p50_ms"`
+	P95Ms                  float64          `json:"p95_ms"`
+	P99Ms                  float64          `json:"p99_ms"`
+	BytesInRate            float64          `json:"bytes_in_rate"`
+	BytesOutRate           float64          `json:"bytes_out_rate"`
+	BytesInTotal           int64            `json:"bytes_in_total"`
+	BytesOutTotal          int64            `json:"bytes_out_total"`
+	OpenConnections        int64            `json:"open_connections"`
+	WindowSeconds          float64          `json:"window_seconds"`
+	NoRouters              bool             `json:"no_routers,omitempty"`
+	RouterRegex            string           `json:"router_regex"`
+	GrafanaURL             string           `json:"grafana_url,omitempty"`
 }
 
 func (c *Client) GetAppTraffic(projectID, appID string) (*AppTraffic, error) {

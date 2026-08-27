@@ -57,7 +57,16 @@ var envsListCmd = &cobra.Command{
 
 		rows := make([][]string, len(keys))
 		for i, k := range keys {
-			v := envs[k]
+			ptr := envs[k]
+			// A nil value means the variable is protected: the API refuses
+			// to return it to any client. Print a placeholder — never a
+			// partial preview, since this output lands in terminals and CI
+			// logs (USCT-183).
+			if ptr == nil {
+				rows[i] = []string{k, "(protected)"}
+				continue
+			}
+			v := *ptr
 			// Mask long values.
 			if len(v) > 40 {
 				v = v[:20] + "..." + v[len(v)-8:]
@@ -132,9 +141,61 @@ var envsDeleteCmd = &cobra.Command{
 	},
 }
 
+// protectionArg maps the user's word to the boolean the API wants. Spelled as
+// an explicit `protect` / `open` verb pair rather than a --protected=false
+// flag so that un-protecting a credential is always a deliberate, readable
+// command in shell history and CI scripts.
+func protectionArg(mode string) (bool, error) {
+	switch mode {
+	case "protect", "protected":
+		return true, nil
+	case "open", "unprotect":
+		return false, nil
+	}
+	return false, fmt.Errorf("unknown mode %q (expected \"protect\" or \"open\")", mode)
+}
+
+var envsProtectCmd = &cobra.Command{
+	Use:   "protect <project-id> <protect|open> KEY [KEY ...]",
+	Short: "Mark environment variables protected (write-only) or open",
+	Long: `Control whether a variable's value can be read back.
+
+A protected variable is write-only: its value is never returned by the
+dashboard, the API, or this CLI — only replaced. Deployments are unaffected,
+the real value still reaches your pods.
+
+Open variables are returned in full to anyone who can already read the
+machine's variables.`,
+	Example: `  usectl envs protect a8f15889 protect STRIPE_SECRET_KEY DATABASE_PASSWORD
+  usectl envs protect a8f15889 open LOG_LEVEL`,
+	Args: cobra.MinimumNArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		protected, err := protectionArg(strings.ToLower(args[1]))
+		if err != nil {
+			return err
+		}
+		for _, key := range args[2:] {
+			if err := client.SetVarProtection(args[0], key, protected); err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+		}
+		state := "protected (write-only)"
+		if !protected {
+			state = "open"
+		}
+		fmt.Printf("✓ Marked %d variable(s) %s\n", len(args)-2, state)
+		return nil
+	},
+}
+
 func init() {
 	envsCmd.AddCommand(envsListCmd)
 	envsCmd.AddCommand(envsSetCmd)
 	envsCmd.AddCommand(envsDeleteCmd)
+	envsCmd.AddCommand(envsProtectCmd)
 	rootCmd.AddCommand(envsCmd)
 }
