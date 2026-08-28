@@ -1,106 +1,180 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 )
 
-// Direct image upload (USCT-172 follow-up).
+// Chunked image upload (USCT-184).
 //
-// Three steps, because the tarball must not travel through the API server:
-// StartImageUpload returns a presigned URL, the client PUTs straight to object
-// storage, then CompleteImageUpload asks the platform to push it into the
-// registry. Images run 200MB–1GB+ and the API pod also serves log streams and
-// web terminals.
+// The tarball is uploaded in parts THROUGH the API rather than straight to
+// object storage: SeaWeedFS sits on a private network the client cannot reach,
+// and exposing it is not an option. Parts keep each request under the CDN's
+// request-body cap and short enough not to trip the server's read timeout,
+// and they give progress and resume for free.
 
 type ImageUploadTicket struct {
-	UploadURL string `json:"upload_url"`
 	UploadKey string `json:"upload_key"`
-	ExpiresAt string `json:"expires_at"`
+	UploadID  string `json:"upload_id"`
+	PartSize  int64  `json:"part_size"`
 	MaxBytes  int64  `json:"max_bytes"`
+	MaxParts  int    `json:"max_parts"`
+}
+
+type ImagePart struct {
+	PartNumber int    `json:"part_number"`
+	ETag       string `json:"etag"`
 }
 
 type ImagePushResult struct {
 	Message  string `json:"message"`
 	Job      string `json:"job"`
 	ImageRef string `json:"image_ref"`
+	Size     int64  `json:"size"`
 }
 
-// StartImageUpload asks for a presigned upload URL.
+// StartImageUpload opens a multipart upload and returns the chunking plan.
 func (c *Client) StartImageUpload(projectID, appID string) (*ImageUploadTicket, error) {
 	var t ImageUploadTicket
 	err := c.Post(fmt.Sprintf("/api/projects/%s/apps/%s/image-uploads", projectID, appID), nil, &t)
 	return &t, err
 }
 
-// UploadImageTar PUTs the tarball straight to object storage.
+// UploadImageParts streams `path` to the API one part at a time.
 //
-// Deliberately uses a bare http.Client rather than the API client: the
-// presigned URL carries its own authorisation, and attaching our bearer token
-// to a third-party storage endpoint would leak it. `progress` is called with
-// bytes sent so a TTY can render a bar; pass nil for silence.
-func UploadImageTar(uploadURL, path string, progress func(sent, total int64)) error {
+// Reads each part into memory before sending because the request must carry an
+// exact Content-Length — the storage layer signs each part against its length,
+// and a chunked body cannot be signed. Part size is chosen by the server and is
+// tens of MB, so this is bounded and predictable rather than proportional to
+// the image.
+func (c *Client) UploadImageParts(projectID, appID string, t *ImageUploadTicket, path string, progress func(sent, total int64)) ([]ImagePart, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("open image tar: %w", err)
+		return nil, fmt.Errorf("open image tar: %w", err)
 	}
 	defer f.Close()
 
 	st, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("stat image tar: %w", err)
+		return nil, fmt.Errorf("stat image tar: %w", err)
+	}
+	total := st.Size()
+	if t.MaxBytes > 0 && total > t.MaxBytes {
+		return nil, fmt.Errorf("image is %d bytes; the limit is %d", total, t.MaxBytes)
 	}
 
-	var body io.Reader = f
-	if progress != nil {
-		body = &progressReader{r: f, total: st.Size(), fn: progress}
+	partSize := t.PartSize
+	if partSize <= 0 {
+		partSize = 32 << 20
 	}
 
-	req, err := http.NewRequest(http.MethodPut, uploadURL, body)
+	var parts []ImagePart
+	var sent int64
+	buf := make([]byte, partSize)
+
+	for partNumber := 1; ; partNumber++ {
+		n, readErr := io.ReadFull(f, buf)
+		if n == 0 {
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil && readErr != io.ErrUnexpectedEOF {
+				return nil, fmt.Errorf("read image tar: %w", readErr)
+			}
+			break
+		}
+		if t.MaxParts > 0 && partNumber > t.MaxParts {
+			return nil, fmt.Errorf("image needs more than %d parts", t.MaxParts)
+		}
+
+		part, err := c.uploadOnePart(projectID, appID, t, partNumber, buf[:n])
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, part)
+
+		sent += int64(n)
+		if progress != nil {
+			progress(sent, total)
+		}
+
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+			break
+		}
+	}
+
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("the image file is empty")
+	}
+	return parts, nil
+}
+
+func (c *Client) uploadOnePart(projectID, appID string, t *ImageUploadTicket, partNumber int, chunk []byte) (ImagePart, error) {
+	endpoint := fmt.Sprintf("%s/api/projects/%s/apps/%s/image-uploads/parts?upload_key=%s&upload_id=%s&part=%d",
+		c.BaseURL, projectID, appID, url.QueryEscape(t.UploadKey), url.QueryEscape(t.UploadID), partNumber)
+
+	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(chunk))
 	if err != nil {
-		return err
+		return ImagePart{}, err
 	}
-	// Required: a presigned PUT is signed for an exact length, and a chunked
-	// upload would not match the signature.
-	req.ContentLength = st.Size()
-	req.Header.Set("Content-Type", "application/x-tar")
+	req.ContentLength = int64(len(chunk))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("upload failed: %w", err)
+		return ImagePart{}, fmt.Errorf("upload part %d: %w", partNumber, err)
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// The storage error body is not ours and may be verbose XML; report
-		// the status and keep the body out of the user's terminal.
-		return fmt.Errorf("upload rejected by storage (HTTP %d)", resp.StatusCode)
+		var e struct {
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		msg := e.Message
+		if msg == "" {
+			msg = e.Error
+		}
+		if msg == "" {
+			msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		}
+		return ImagePart{}, fmt.Errorf("upload part %d: %s", partNumber, msg)
 	}
-	return nil
+
+	var out ImagePart
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return ImagePart{}, fmt.Errorf("upload part %d: bad response: %w", partNumber, err)
+	}
+	return out, nil
 }
 
-// CompleteImageUpload asks the platform to push the staged tarball.
-func (c *Client) CompleteImageUpload(projectID, appID, uploadKey, tag string) (*ImagePushResult, error) {
+// CompleteImageUpload assembles the parts and starts the registry push.
+func (c *Client) CompleteImageUpload(projectID, appID, uploadKey, uploadID, tag string, parts []ImagePart) (*ImagePushResult, error) {
 	var out ImagePushResult
-	body := map[string]string{"upload_key": uploadKey, "tag": tag}
+	body := map[string]any{
+		"upload_key": uploadKey,
+		"upload_id":  uploadID,
+		"parts":      parts,
+		"tag":        tag,
+	}
 	err := c.Post(fmt.Sprintf("/api/projects/%s/apps/%s/image-uploads/complete", projectID, appID), body, &out)
 	return &out, err
 }
 
-// progressReader reports upload progress without buffering the stream.
-type progressReader struct {
-	r     io.Reader
-	total int64
-	sent  int64
-	fn    func(sent, total int64)
-}
-
-func (p *progressReader) Read(b []byte) (int, error) {
-	n, err := p.r.Read(b)
-	if n > 0 {
-		p.sent += int64(n)
-		p.fn(p.sent, p.total)
-	}
-	return n, err
+// AbortImageUpload discards a partial upload. An abandoned multipart upload
+// holds storage that an object listing does not show, so the orphan sweeper
+// cannot reclaim it — only an explicit abort does.
+func (c *Client) AbortImageUpload(projectID, appID, uploadKey, uploadID string) error {
+	path := fmt.Sprintf("/api/projects/%s/apps/%s/image-uploads?upload_key=%s&upload_id=%s",
+		projectID, appID, url.QueryEscape(uploadKey), url.QueryEscape(uploadID))
+	return c.Delete(path, nil)
 }

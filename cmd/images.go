@@ -102,7 +102,7 @@ usectl apps update --image).`,
 			return fmt.Errorf("read image tar: %w", err)
 		}
 
-		fmt.Println("Requesting upload URL…")
+		fmt.Println("Preparing upload…")
 		ticket, err := client.StartImageUpload(projectID, appID)
 		if err != nil {
 			return err
@@ -112,15 +112,15 @@ usectl apps update --image).`,
 				humanBytes(st.Size()), humanBytes(ticket.MaxBytes))
 		}
 
-		fmt.Printf("Uploading %s…\n", humanBytes(st.Size()))
+		fmt.Printf("Uploading %s in %s parts…\n", humanBytes(st.Size()), humanBytes(ticket.PartSize))
 		lastPct := -1
-		err = api.UploadImageTar(ticket.UploadURL, tarPath, func(sent, total int64) {
+		parts, err := client.UploadImageParts(projectID, appID, ticket, tarPath, func(sent, total int64) {
 			if total == 0 {
 				return
 			}
 			pct := int(sent * 100 / total)
-			// Only redraw on a whole-percent change, and only on a TTY —
-			// piping this into a CI log should not produce 10,000 lines.
+			// Redraw only on a whole-percent change, and only on a TTY —
+			// piping this into a CI log should not produce thousands of lines.
 			if pct != lastPct && isTTY() {
 				lastPct = pct
 				fmt.Printf("\r  %d%% (%s / %s)", pct, humanBytes(sent), humanBytes(total))
@@ -130,11 +130,14 @@ usectl apps update --image).`,
 			fmt.Println()
 		}
 		if err != nil {
+			// Reclaim the partial upload: an abandoned multipart upload holds
+			// storage the orphan sweeper cannot see.
+			_ = client.AbortImageUpload(projectID, appID, ticket.UploadKey, ticket.UploadID)
 			return err
 		}
 
 		fmt.Println("Pushing into the registry…")
-		res, err := client.CompleteImageUpload(projectID, appID, ticket.UploadKey, imagePushTag)
+		res, err := client.CompleteImageUpload(projectID, appID, ticket.UploadKey, ticket.UploadID, imagePushTag, parts)
 		if err != nil {
 			return err
 		}
