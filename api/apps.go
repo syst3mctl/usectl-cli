@@ -60,7 +60,16 @@ type AppPort struct {
 }
 
 type CreateProjectAppRequest struct {
-	Name              string   `json:"name"`
+	Name string `json:"name"`
+	// SourceType (mig 065): "git" builds from RepoURL, "image" deploys
+	// ImageRef with no build. Empty means git, so existing callers are
+	// unaffected.
+	SourceType string `json:"source_type,omitempty"`
+	ImageRef   string `json:"image_ref,omitempty"`
+	// Private-registry credentials. Sent once, stored server-side in the
+	// vault, never returned by any read.
+	RegistryUsername  string   `json:"registry_username,omitempty"`
+	RegistryPassword  string   `json:"registry_password,omitempty"`
 	RepoURL           string   `json:"repo_url"`
 	Branch            string   `json:"branch,omitempty"`
 	Domain            string   `json:"domain,omitempty"`
@@ -84,6 +93,16 @@ type CreateProjectAppRequest struct {
 }
 
 type UpdateProjectAppRequest struct {
+	// SourceType (mig 065) switches an app between a repo and a prebuilt
+	// image. Switching to "image" clears the repo link and disables
+	// auto-deploy + preview envs server-side, which is why the response
+	// carries SourceSwitchWarning — GitHub pushes silently stop deploying
+	// the pod otherwise.
+	SourceType        *string  `json:"source_type,omitempty"`
+	ImageRef          *string  `json:"image_ref,omitempty"`
+	RepoURL           *string  `json:"repo_url,omitempty"`
+	RegistryUsername  *string  `json:"registry_username,omitempty"`
+	RegistryPassword  *string  `json:"registry_password,omitempty"`
 	Branch            *string  `json:"branch,omitempty"`
 	Domain            *string  `json:"domain,omitempty"`
 	Port              *int     `json:"port,omitempty"`
@@ -183,12 +202,20 @@ func (c *Client) CreateProjectApp(projectID string, req CreateProjectAppRequest)
 // {"app": ProjectApp, "warning"?: string, "detached_domains"?: int}.
 func (c *Client) UpdateProjectApp(projectID, appID string, req UpdateProjectAppRequest) (*ProjectApp, string, error) {
 	var resp struct {
-		App             ProjectApp `json:"app"`
-		Warning         string     `json:"warning,omitempty"`
-		DetachedDomains int        `json:"detached_domains,omitempty"`
+		App                 ProjectApp `json:"app"`
+		Warning             string     `json:"warning,omitempty"`
+		SourceSwitchWarning string     `json:"source_switch_warning,omitempty"`
+		DetachedDomains     int        `json:"detached_domains,omitempty"`
 	}
 	err := c.Patch(fmt.Sprintf("/api/projects/%s/apps/%s", projectID, appID), req, &resp)
-	return &resp.App, resp.Warning, err
+	// Prefer the source-switch warning: it reports that GitHub pushes have
+	// stopped deploying this pod, which the user cannot infer from anything
+	// else in the response.
+	warning := resp.Warning
+	if resp.SourceSwitchWarning != "" {
+		warning = resp.SourceSwitchWarning
+	}
+	return &resp.App, warning, err
 }
 
 func (c *Client) DeleteProjectApp(projectID, appID string) error {

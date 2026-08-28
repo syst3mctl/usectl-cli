@@ -196,6 +196,9 @@ var appsListCmd = &cobra.Command{
 var (
 	appCreateName        string
 	appCreateRepo        string
+	appCreateImage       string
+	appCreateRegUser     string
+	appCreateRegPass     string
 	appCreateBranch      string
 	appCreateDomain      string
 	appCreatePort        int
@@ -259,15 +262,44 @@ networking.`,
     --kind worker --command "node worker.js"
 
   # Private app (cluster-internal only)
-  usectl apps create proj-id --name auth --repo https://github.com/me/auth --private`,
+  usectl apps create proj-id --name auth --repo https://github.com/me/auth --private
+
+  # Prebuilt image — no build runs, the reference is deployed as-is
+  usectl apps create proj-id --name api --image ghcr.io/acme/api:v1.2.3 --port 8080
+
+  # Prebuilt image from a private registry
+  usectl apps create proj-id --name api --image ghcr.io/acme/api:v1.2.3 \
+    --registry-user acme-bot --registry-password "$GHCR_TOKEN"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
+		// USCT-172: --image deploys a prebuilt reference with no build. It is
+		// mutually exclusive with --repo: an app carrying both has no single
+		// answer to what a deploy builds, and the API rejects it.
+		if appCreateImage != "" && appCreateRepo != "" {
+			return fmt.Errorf("--image and --repo are mutually exclusive: an app is built from a repo OR deployed from a prebuilt image")
+		}
+		if appCreateImage == "" && appCreateRepo == "" {
+			return fmt.Errorf("one of --repo or --image is required")
+		}
+		if appCreateImage == "" && (appCreateRegUser != "" || appCreateRegPass != "") {
+			return fmt.Errorf("--registry-user/--registry-password only apply with --image")
+		}
+
+		sourceType := ""
+		if appCreateImage != "" {
+			sourceType = "image"
+		}
+
 		req := api.CreateProjectAppRequest{
 			Name:              appCreateName,
+			SourceType:        sourceType,
+			ImageRef:          appCreateImage,
+			RegistryUsername:  appCreateRegUser,
+			RegistryPassword:  appCreateRegPass,
 			RepoURL:           appCreateRepo,
 			Branch:            appCreateBranch,
 			Domain:            appCreateDomain,
@@ -313,6 +345,14 @@ networking.`,
 }
 
 var (
+	appUpdateSource  string
+	appUpdateImage   string
+	appUpdateRepo    string
+	appUpdateRegUser string
+	appUpdateRegPass string
+)
+
+var (
 	appUpdateBranch     string
 	appUpdateDomain     string
 	appUpdatePort       int
@@ -342,6 +382,30 @@ var appsUpdateCmd = &cobra.Command{
 			return err
 		}
 		req := api.UpdateProjectAppRequest{}
+
+		// USCT-172: source switch. --image implies source_type=image and
+		// --repo implies git, so the user never has to spell out the
+		// discriminator separately.
+		if cmd.Flags().Changed("image") && cmd.Flags().Changed("repo") {
+			return fmt.Errorf("--image and --repo are mutually exclusive")
+		}
+		if cmd.Flags().Changed("image") {
+			img := "image"
+			req.SourceType = &img
+			req.ImageRef = &appUpdateImage
+		}
+		if cmd.Flags().Changed("repo") {
+			git := "git"
+			req.SourceType = &git
+			req.RepoURL = &appUpdateRepo
+		}
+		if cmd.Flags().Changed("registry-user") {
+			req.RegistryUsername = &appUpdateRegUser
+		}
+		if cmd.Flags().Changed("registry-password") {
+			req.RegistryPassword = &appUpdateRegPass
+		}
+
 		if cmd.Flags().Changed("branch") {
 			req.Branch = &appUpdateBranch
 		}
@@ -983,7 +1047,10 @@ empty credential. Deployments are unaffected.`,
 func init() {
 	// create flags
 	appsCreateCmd.Flags().StringVar(&appCreateName, "name", "", "App name (required)")
-	appsCreateCmd.Flags().StringVar(&appCreateRepo, "repo", "", "GitHub repo URL (required)")
+	appsCreateCmd.Flags().StringVar(&appCreateRepo, "repo", "", "GitHub repo URL (required unless --image)")
+	appsCreateCmd.Flags().StringVar(&appCreateImage, "image", "", "Deploy a prebuilt image instead of building from a repo, e.g. ghcr.io/acme/api:v1.2.3")
+	appsCreateCmd.Flags().StringVar(&appCreateRegUser, "registry-user", "", "Private registry username (with --image)")
+	appsCreateCmd.Flags().StringVar(&appCreateRegPass, "registry-password", "", "Private registry password or token (with --image)")
 	appsCreateCmd.Flags().StringVar(&appCreateBranch, "branch", "main", "Git branch")
 	appsCreateCmd.Flags().StringVar(&appCreateDomain, "domain", "", "Subdomain")
 	appsCreateCmd.Flags().IntVar(&appCreatePort, "port", 3000, "Container port")
@@ -1003,6 +1070,10 @@ func init() {
 	appsCreateCmd.MarkFlagRequired("repo")
 
 	// update flags
+	appsUpdateCmd.Flags().StringVar(&appUpdateImage, "image", "", "Switch to a prebuilt image, e.g. ghcr.io/acme/api:v1.2.3 (stops GitHub deploys)")
+	appsUpdateCmd.Flags().StringVar(&appUpdateRepo, "repo", "", "Switch back to building from this GitHub repo URL")
+	appsUpdateCmd.Flags().StringVar(&appUpdateRegUser, "registry-user", "", "Private registry username (with --image)")
+	appsUpdateCmd.Flags().StringVar(&appUpdateRegPass, "registry-password", "", "Private registry password or token (with --image)")
 	appsUpdateCmd.Flags().StringVar(&appUpdateBranch, "branch", "", "New branch")
 	appsUpdateCmd.Flags().StringVar(&appUpdateDomain, "domain", "", "New subdomain")
 	appsUpdateCmd.Flags().IntVar(&appUpdatePort, "port", 0, "New port")
