@@ -165,6 +165,7 @@ func (c *Client) doOnce(method, path string, body interface{}, result interface{
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", UserAgent())
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -226,6 +227,7 @@ func (c *Client) doRawOnce(method, path string) (*http.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
+	req.Header.Set("User-Agent", UserAgent())
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -278,4 +280,19 @@ func (c *Client) Patch(path string, body interface{}, result interface{}) error 
 // DeleteWithBody performs a DELETE request with a JSON body.
 func (c *Client) DeleteWithBody(path string, body interface{}, result interface{}) error {
 	return c.do(http.MethodDelete, path, body, result)
+}
+
+// ClientVersion is set from cmd.Version at startup so requests can identify
+// themselves. Kept as a variable rather than importing cmd, which would be an
+// import cycle.
+var ClientVersion = "dev"
+
+// UserAgent identifies this client to the API.
+//
+// The server reads it to attribute variable changes to the CLI rather than the
+// dashboard (USCT-192). Without it every `usectl env set` would be recorded as
+// an anonymous API call, and the Variables tab could not tell a teammate where
+// a change came from.
+func UserAgent() string {
+	return "usectl-cli/" + ClientVersion
 }

@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/giorgi/usectl/api"
 )
 
 var (
@@ -118,6 +120,11 @@ func Execute() {
 }
 
 func init() {
+	// So the API can attribute variable changes to the CLI rather than the
+	// dashboard (USCT-192). Set here rather than in api/ to avoid an import
+	// cycle — cmd already imports api.
+	api.ClientVersion = Version
+
 	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "", "API base URL (default: from config or https://manager.usectl.com)")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 }

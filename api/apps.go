@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // ========== Project Apps (multi-app pods) ==========
@@ -170,6 +171,37 @@ type AppEnvVarEntry struct {
 	Source     string  `json:"source"`
 	Overridden bool    `json:"overridden,omitempty"`
 	Protected  bool    `json:"protected,omitempty"`
+
+	// Provenance (USCT-192). Nil for keys unchanged since the change log
+	// shipped. Carried on protected entries too — the log records key names
+	// and actors, never values, so there is nothing here to withhold.
+	UpdatedAt *time.Time   `json:"updated_at,omitempty"`
+	UpdatedBy *EnvVarActor `json:"updated_by,omitempty"`
+}
+
+// EnvVarActor is who last changed a variable.
+type EnvVarActor struct {
+	UserID string `json:"user_id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Email  string `json:"email,omitempty"`
+	Source string `json:"source"`
+}
+
+// DisplayActor renders the actor for human-readable output, falling back
+// through name → email → the source alone, so a deleted account still shows
+// where the change came from rather than an empty column.
+func (e AppEnvVarEntry) DisplayActor() string {
+	if e.UpdatedBy == nil {
+		return ""
+	}
+	switch {
+	case e.UpdatedBy.Name != "":
+		return e.UpdatedBy.Name
+	case e.UpdatedBy.Email != "":
+		return e.UpdatedBy.Email
+	default:
+		return e.UpdatedBy.Source
+	}
 }
 
 // DisplayValue renders one entry for human-readable output. Protected values
