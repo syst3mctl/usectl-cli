@@ -250,6 +250,73 @@ func (c *Client) doRawOnce(method, path string) (*http.Response, error) {
 	return resp, nil
 }
 
+
+// doRawBody is doRaw with a request body (S3 upload). Retries 401 once;
+// if body is an io.Seeker it is rewound.
+func (c *Client) doRawBody(method, path string, body io.Reader, contentType string, contentLength int64) (*http.Response, error) {
+	resp, err := c.doRawBodyOnce(method, path, body, contentType, contentLength)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized && !c.refreshing && c.RefreshToken != "" {
+		resp.Body.Close()
+		if rErr := c.refreshAccessToken(); rErr != nil {
+			return nil, &APIError{StatusCode: http.StatusUnauthorized, Message: "session expired — run 'usectl login'"}
+		}
+		if seeker, ok := body.(io.Seeker); ok {
+			if _, sErr := seeker.Seek(0, io.SeekStart); sErr != nil {
+				return nil, fmt.Errorf("rewind body: %w", sErr)
+			}
+		}
+		return c.doRawBodyOnce(method, path, body, contentType, contentLength)
+	}
+	return resp, nil
+}
+
+func (c *Client) doRawBodyOnce(method, path string, body io.Reader, contentType string, contentLength int64) (*http.Response, error) {
+	url := c.BaseURL + path
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	// Same as image-part upload: the shared client is 30s, which aborts
+	// multi-tens-of-MB bodies. Default timeout (0) waits on the transfer.
+	httpClient := http.Client{}
+	if c.httpClient != nil {
+		httpClient = *c.httpClient
+	}
+	httpClient.Timeout = 0
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request to %s: %w", url, err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
+			return nil, &APIError{StatusCode: resp.StatusCode, Message: errResp.Error}
+		}
+		return nil, &APIError{StatusCode: resp.StatusCode, Message: string(respBody)}
+	}
+
+	return resp, nil
+}
+
 // Get performs a GET request.
 func (c *Client) Get(path string, result interface{}) error {
 	return c.do(http.MethodGet, path, nil, result)

@@ -16,6 +16,7 @@ Requires the machine to have been created with --s3 or toggled on.
 
 Subcommands:
   list      List objects in the bucket (with optional prefix filter)
+  upload    Upload a local file by key
   download  Download a specific object by key
   toggle    Enable or disable S3 storage for the machine
   cdn       Enable or disable public CDN access for the bucket`,
@@ -37,22 +38,22 @@ Use --prefix to filter by path prefix.`,
 			return err
 		}
 
-		objects, err := client.ListS3Objects(args[0], s3ListPrefix)
+		listing, err := client.ListS3Objects(args[0], s3ListPrefix)
 		if err != nil {
 			return err
 		}
 
 		if jsonOutput {
-			return output.JSON(objects)
+			return output.JSON(listing)
 		}
 
-		if len(objects) == 0 {
+		if len(listing.Objects) == 0 {
 			fmt.Println("No objects found.")
 			return nil
 		}
 
-		rows := make([][]string, len(objects))
-		for i, obj := range objects {
+		rows := make([][]string, len(listing.Objects))
+		for i, obj := range listing.Objects {
 			objType := "file"
 			size := formatSize(obj.Size)
 			modified := obj.LastModified.Format("2006-01-02 15:04")
@@ -93,6 +94,39 @@ directory using the object's filename, or to a custom path with --output.`,
 		}
 
 		fmt.Printf("✓ Downloaded %s → %s\n", s3DownloadKey, savedPath)
+		return nil
+	},
+}
+
+var (
+	s3UploadKey  string
+	s3UploadFile string
+)
+
+var s3UploadCmd = &cobra.Command{
+	Use:   "upload <project-id>",
+	Short: "Upload a local file to the machine's S3 bucket",
+	Long: `Upload a single object by key. Talks to manager.usectl.com
+(same auth as list/download), not the in-cluster S3 endpoint.`,
+	Example: `  usectl projects s3 upload a8f15889 --key proof.txt --file ./proof.txt
+  usectl projects s3 upload a8f15889 --key proof.txt --file ./proof.txt --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.UploadS3Object(args[0], s3UploadKey, s3UploadFile)
+		if err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			return output.JSON(resp)
+		}
+
+		fmt.Printf("✓ Uploaded %s (%s)\n", resp.Key, formatSize(resp.Size))
 		return nil
 	},
 }
@@ -185,6 +219,12 @@ func init() {
 	// List flags
 	s3ListCmd.Flags().StringVar(&s3ListPrefix, "prefix", "", "Filter by key prefix (path/)")
 
+	// Upload flags
+	s3UploadCmd.Flags().StringVar(&s3UploadKey, "key", "", "Object key to upload (required)")
+	s3UploadCmd.Flags().StringVar(&s3UploadFile, "file", "", "Local file path (required)")
+	s3UploadCmd.MarkFlagRequired("key")
+	s3UploadCmd.MarkFlagRequired("file")
+
 	// Download flags
 	s3DownloadCmd.Flags().StringVar(&s3DownloadKey, "key", "", "Object key to download (required)")
 	s3DownloadCmd.Flags().StringVar(&s3DownloadOutput, "output", "", "Output file path (default: filename from key)")
@@ -194,6 +234,7 @@ func init() {
 	s3ToggleCmd.Flags().BoolVar(&s3ToggleEnable, "enable", false, "Enable S3 (use --enable=false to disable)")
 
 	s3Cmd.AddCommand(s3ListCmd)
+	s3Cmd.AddCommand(s3UploadCmd)
 	s3Cmd.AddCommand(s3DownloadCmd)
 	s3Cmd.AddCommand(s3ToggleCmd)
 	s3Cmd.AddCommand(s3CdnCmd)
