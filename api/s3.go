@@ -92,7 +92,7 @@ func (c *Client) UploadS3Object(projectID, key, filePath string) (*S3UploadRespo
 	}
 
 	path := fmt.Sprintf("/api/projects/%s/s3/objects?key=%s", projectID, url.QueryEscape(key))
-	resp, err := c.doRawBody(http.MethodPut, path, f, "application/octet-stream")
+	resp, err := c.doRawBody(http.MethodPut, path, f, "application/octet-stream", st.Size())
 	if err != nil {
 		return nil, err
 	}
