@@ -70,6 +70,31 @@ type Deployment struct {
 	PRDomain     *string `json:"pr_domain,omitempty"`
 	CreatedAt    string  `json:"created_at"`
 	UpdatedAt    string  `json:"updated_at"`
+
+	// Fields the API has grown since this type was written.
+	//
+	// ProjectAppID scopes a deployment to one app (mig 053); it is null on
+	// older project-level rows.
+	ProjectAppID *string `json:"project_app_id,omitempty"`
+	// CommitMessage is best-effort — absent for image-sourced deployments.
+	CommitMessage *string `json:"commit_message,omitempty"`
+	// SourceType is "git" or "image" (mig 065). An image-sourced deployment
+	// has no commit at all, which is why CommitHash can come back empty.
+	SourceType string `json:"source_type,omitempty"`
+	// ImageDigest pins the exact image a deployment ran, so a rollback
+	// redeploys that build rather than whatever a mutable tag points at now.
+	ImageDigest *string `json:"image_digest,omitempty"`
+	// RollbackState is the deploy-safety watcher's verdict (mig 048/061):
+	// none | watching | passed | rolled_back | manual_rollback | cancelled.
+	RollbackState  string  `json:"rollback_state,omitempty"`
+	RollbackReason *string `json:"rollback_reason,omitempty"`
+	// UpstreamService/Code name the third party that caused a failure
+	// (USCT-178/189) — e.g. service "registry", code "registry_misconfigured".
+	UpstreamService *string `json:"upstream_service,omitempty"`
+	UpstreamCode    *string `json:"upstream_code,omitempty"`
+	// ImagePrunedAt is set when retention reclaimed this deployment's image
+	// (mig 067). Non-nil means rollback here is no longer possible.
+	ImagePrunedAt *string `json:"image_pruned_at,omitempty"`
 }
 
 type ProjectWithDeployment struct {

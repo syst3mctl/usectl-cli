@@ -38,6 +38,10 @@ Command Groups:
   cron             Manage scheduled cron jobs (and run history)
   domains          Manage custom domains (incl. per-app pinning + verify)
   members          Manage machine members, invitations, and per-developer scope
+  deployments      List deployment history; roll back to a previous build
+  kpods            Raw Kubernetes pods across a machine's namespaces
+  groups           Partition apps/addons into isolated group namespaces
+  registry         Container-image allowance and what is consuming it
   quota            Inspect resource quota, recommendations, plan-resize previews
   notifications    View and acknowledge in-app notifications
   billing          Manage your subscription and payment
