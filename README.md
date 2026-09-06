@@ -224,8 +224,14 @@ name, and from nothing else. A browser, a webhook, another machine, or a
 frontend calling an API all need a domain:
 
 ```bash
-usectl machines pods create api web --repo <url> --port 8080 --domain api
-usectl machines pods set api web domain=api.example.com
+# platform subdomain — nothing to configure
+usectl machines pods create <machine> web --repo <url> --port 8080 --domain my-app
+
+# your own domain — point its DNS at the platform first
+usectl machines pods create <machine> web --repo <url> --port 8080 --domain app.example.com
+
+# or set it later
+usectl machines pods set <machine> web domain=app.example.com
 ```
 
 No dot → a platform subdomain (`api` → `api.usectl.com`). With a dot → your own
