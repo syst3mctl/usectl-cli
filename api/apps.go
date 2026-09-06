@@ -50,12 +50,15 @@ type ProjectApp struct {
 	// mig 059: extra cluster-internal-only ports.
 	ExtraPorts []AppPort `json:"extra_ports,omitempty"`
 	// mig 060: metrics scraping. MetricsPort nil = the app's primary port.
-	MetricsEnabled bool    `json:"metrics_enabled"`
-	MetricsPort    *int    `json:"metrics_port,omitempty"`
-	MetricsPath    string  `json:"metrics_path,omitempty"`
-	LastDeployAt   *string `json:"last_deploy_at,omitempty"`
-	CreatedAt      string  `json:"created_at"`
-	UpdatedAt      string  `json:"updated_at"`
+	MetricsEnabled bool   `json:"metrics_enabled"`
+	MetricsPort    *int   `json:"metrics_port,omitempty"`
+	MetricsPath    string `json:"metrics_path,omitempty"`
+	// GroupID (mig 055): nil means ungrouped, i.e. the pod lives in the
+	// machine's legacy kdeploy-<name> namespace rather than a group sibling.
+	GroupID      *string `json:"group_id,omitempty"`
+	LastDeployAt *string `json:"last_deploy_at,omitempty"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 
 // AppPort is one additional cluster-internal-only port on an app pod (mig 059).
@@ -131,6 +134,11 @@ type UpdateProjectAppRequest struct {
 	MetricsEnabled *bool   `json:"metrics_enabled,omitempty"`
 	MetricsPort    *int    `json:"metrics_port,omitempty"`
 	MetricsPath    *string `json:"metrics_path,omitempty"`
+	// GroupID (mig 055) moves the pod between machine groups. The all-zero
+	// UUID means "out of any group"; nil leaves membership unchanged. The
+	// handler needs that sentinel because a *uuid.UUID cannot distinguish
+	// "field absent" from "field set to null".
+	GroupID *string `json:"group_id,omitempty"`
 }
 
 // AppAddressPort is one port entry in an app's internal address (mig 059).

@@ -37,6 +37,7 @@ var podSettings = []podSetting{
 	{"domain", "<host>", "Legacy single-domain field; prefer 'machines domains'", false},
 	{"image", "<ref>", "Prebuilt image reference; switches the pod to image source", false},
 	{"kind", "web|worker|release", "Pod kind", false},
+	{"group", "<name>|none", "Machine group this pod belongs to; 'none' moves it out", false},
 	{"command", "<string>", "Container entrypoint override", false},
 	{"auto-deploy", "true|false", "Deploy automatically on push", false},
 	{"metrics", "true|false", "Scrape this pod's /metrics into the platform store", false},
@@ -144,6 +145,18 @@ key=value form would silently drop the ports it did not mention.`,
 					return fmt.Errorf("kind must be web, worker or release, got %q", v)
 				}
 				upd.Kind = &v
+			case "group":
+				// Moving a pod tears down its Deployment, Service, IngressRoute
+				// and per-pod Secrets in the OLD namespace; the next deploy
+				// reconciles them into the new one. So the pod is down until
+				// it is redeployed — worth saying rather than discovering.
+				gid, gErr := resolveGroup(client, machineID, v)
+				if gErr != nil {
+					return gErr
+				}
+				upd.GroupID = &gid
+				fmt.Println(output.Yellow("  note: the pod's resources are removed from its old namespace;"))
+				fmt.Println(output.Yellow("        redeploy it to bring it up in the new group."))
 			case "command":
 				upd.Command = &v
 			case "auto-deploy":
@@ -255,6 +268,7 @@ func showPodSettings(client *api.Client, machineID, podID string) error {
 		"domain":      orDash(a.Domain),
 		"image":       orDash(a.ImageRef),
 		"kind":        orDash(a.Kind),
+		"group":       podGroupName(client, machineID, a.GroupID),
 		"command":     orDashPtr(a.Command),
 		"auto-deploy": strconv.FormatBool(a.AutoDeploy),
 		"metrics":     strconv.FormatBool(a.MetricsEnabled),
@@ -360,4 +374,20 @@ func strPtrOr(p *string, def string) string {
 		return def
 	}
 	return *p
+}
+
+// podGroupName renders a pod's group for the settings listing, resolving the id
+// to the name the user typed when creating it.
+func podGroupName(client *api.Client, machineID string, groupID *string) string {
+	if groupID == nil || *groupID == "" || *groupID == zeroUUID {
+		return "none"
+	}
+	if groups, err := client.ListProjectGroups(machineID); err == nil {
+		for _, g := range groups {
+			if g.ID == *groupID {
+				return g.Name
+			}
+		}
+	}
+	return shortID(*groupID)
 }

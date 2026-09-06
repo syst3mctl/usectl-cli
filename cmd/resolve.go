@@ -144,3 +144,36 @@ func resolveAddon(client *api.Client, machineID, ref string) (string, error) {
 	sort.Strings(labels)
 	return "", fmt.Errorf("no addon %q in this machine — have: %s", ref, strings.Join(labels, ", "))
 }
+
+// zeroUUID is the sentinel the API uses for "no group". A *uuid.UUID cannot
+// distinguish an absent field from an explicit null, so the all-zero value is
+// what moves a pod or addon out of every group.
+const zeroUUID = "00000000-0000-0000-0000-000000000000"
+
+// resolveGroup turns a group name or id into an id within one machine.
+// "-", "none" and "default" all mean "out of any group".
+func resolveGroup(client *api.Client, machineID, ref string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(ref)) {
+	case "", "-", "none", "default", "ungrouped":
+		return zeroUUID, nil
+	}
+	if isUUID(ref) {
+		return ref, nil
+	}
+	groups, err := client.ListProjectGroups(machineID)
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	for _, g := range groups {
+		names = append(names, g.Name)
+		if g.Name == ref || strings.HasPrefix(g.ID, ref) {
+			return g.ID, nil
+		}
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return "", fmt.Errorf("this machine has no groups — create one with 'usectl machines groups create <machine> <name>'")
+	}
+	return "", fmt.Errorf("no group named %q in this machine — have: %s", ref, strings.Join(names, ", "))
+}

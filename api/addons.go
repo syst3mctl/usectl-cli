@@ -134,3 +134,17 @@ func (c *Client) StopProjectAddon(projectID, addonID string) error {
 func (c *Client) StartProjectAddon(projectID, addonID string) error {
 	return c.Post(fmt.Sprintf("/api/projects/%s/addons/%s/start", projectID, addonID), nil, nil)
 }
+
+// MoveAddonGroup moves an addon between machine groups.
+//
+// groupID is the all-zero UUID to move the addon out of any group. pvcAction is
+// "leave" (default — the volume stays in the old namespace for manual recovery)
+// or "destroy". Only dedicated addons own a PVC; for a managed addon the move
+// just rewrites the connection Secret on the next deploy.
+func (c *Client) MoveAddonGroup(projectID, addonID, groupID, pvcAction string) error {
+	body := map[string]interface{}{"group_id": groupID}
+	if pvcAction != "" {
+		body["pvc_action"] = pvcAction
+	}
+	return c.Post(fmt.Sprintf("/api/projects/%s/addons/%s/move-group", projectID, addonID), body, nil)
+}

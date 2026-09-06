@@ -147,11 +147,17 @@ type ProjectGroup struct {
 
 // ListProjectGroups returns a machine's groups.
 func (c *Client) ListProjectGroups(projectID string) ([]ProjectGroup, error) {
-	var out []ProjectGroup
+	// The handler wraps the list: {"groups": [...]}. Decoding straight into a
+	// []ProjectGroup failed outright with "cannot unmarshal object into Go
+	// value of type []api.ProjectGroup", so `machines groups list` had never
+	// worked. Same shape mismatch as GetProjectDomains.
+	var out struct {
+		Groups []ProjectGroup `json:"groups"`
+	}
 	if err := c.Get(fmt.Sprintf("/api/projects/%s/groups", projectID), &out); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return out.Groups, nil
 }
 
 // CreateProjectGroup adds a group. Names are lowercased server-side and must

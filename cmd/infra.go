@@ -296,3 +296,73 @@ func init() {
 
 	rootCmd.AddCommand(kpodsCmd, registryCmd, groupsCmd)
 }
+
+var groupsMoveAddonPVC string
+
+var groupsMoveAddonCmd = &cobra.Command{
+	Use:   "move-addon [machine] <addon> <group>",
+	Short: "Move an addon into a machine group (or out with 'none')",
+	Long: `Move an addon between machine groups.
+
+The K8s side is the destructive part: a DEDICATED addon's StatefulSet and
+Service live in the old group's namespace and are torn down, so the addon is
+down until the next deploy reconciles it into the new namespace. A MANAGED
+addon just has its connection Secret rewritten.
+
+--pvc decides what happens to a dedicated addon's volume:
+  leave    (default) the PVC stays in the old namespace for manual recovery
+  destroy  the PVC is deleted — the data is gone
+
+Pass 'none' as the group to move the addon out of every group, back into the
+machine's default namespace.`,
+	Example: `  usectl machines groups move-addon api database/analytics stage
+  usectl machines groups move-addon api database stage --pvc destroy
+  usectl machines groups move-addon api database none`,
+	Args: cobra.RangeArgs(2, 3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		machineID, addonID, rest, err := resolveMachineAndAddon(client, args)
+		if err != nil {
+			return err
+		}
+		if len(rest) == 0 {
+			return fmt.Errorf("name the group to move it into, or 'none' to move it out")
+		}
+		groupID, err := resolveGroup(client, machineID, rest[0])
+		if err != nil {
+			return err
+		}
+		if groupGgMovePVCInvalid(groupsMoveAddonPVC) {
+			return fmt.Errorf("--pvc must be 'leave' or 'destroy', got %q", groupsMoveAddonPVC)
+		}
+
+		if groupsMoveAddonPVC == "destroy" && !assumeYes {
+			if !interactive() {
+				return fmt.Errorf("--pvc destroy deletes the addon's data; pass --yes to confirm non-interactively")
+			}
+			fmt.Println(output.Yellow("--pvc destroy deletes the addon's volume in the old namespace. The data is gone."))
+			if !confirm("Continue?") {
+				return fmt.Errorf("cancelled")
+			}
+		}
+
+		if err := client.MoveAddonGroup(machineID, addonID, groupID, groupsMoveAddonPVC); err != nil {
+			return err
+		}
+		fmt.Println("✓ Addon moved. Redeploy the machine to bring it up in the new namespace.")
+		return nil
+	},
+}
+
+func groupGgMovePVCInvalid(v string) bool {
+	return v != "" && v != "leave" && v != "destroy"
+}
+
+func init() {
+	groupsMoveAddonCmd.Flags().StringVar(&groupsMoveAddonPVC, "pvc", "leave", "Dedicated addon volume: leave | destroy")
+	groupsMoveAddonCmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Skip the --pvc destroy confirmation")
+	groupsCmd.AddCommand(groupsMoveAddonCmd)
+}

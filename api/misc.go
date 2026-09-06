@@ -9,7 +9,7 @@ import (
 // ========== Storage ==========
 
 type StorageUsage struct {
-	BytesUsed    int64  `json:"bytes_used,omitempty"`
+	BytesUsed     int64  `json:"bytes_used,omitempty"`
 	HumanReadable string `json:"human_readable,omitempty"`
 }
 
@@ -84,15 +84,15 @@ func (c *Client) DeleteActivePR(projectID string, prNumber int) error {
 // ========== Stack detection ==========
 
 type StackInfo struct {
-	Language        string            `json:"language,omitempty"`
-	Framework       string            `json:"framework,omitempty"`
-	PackageManager  string            `json:"package_manager,omitempty"`
-	HasDockerfile   bool              `json:"has_dockerfile,omitempty"`
-	BuildCommand    string            `json:"build_command,omitempty"`
-	StartCommand    string            `json:"start_command,omitempty"`
-	OutputDir       string            `json:"output_dir,omitempty"`
-	NodeVersion     string            `json:"node_version,omitempty"`
-	Extra           map[string]string `json:"extra,omitempty"`
+	Language       string            `json:"language,omitempty"`
+	Framework      string            `json:"framework,omitempty"`
+	PackageManager string            `json:"package_manager,omitempty"`
+	HasDockerfile  bool              `json:"has_dockerfile,omitempty"`
+	BuildCommand   string            `json:"build_command,omitempty"`
+	StartCommand   string            `json:"start_command,omitempty"`
+	OutputDir      string            `json:"output_dir,omitempty"`
+	NodeVersion    string            `json:"node_version,omitempty"`
+	Extra          map[string]string `json:"extra,omitempty"`
 }
 
 func (c *Client) DetectGitHubStack(installationID int64, owner, repo, ref string) (*StackInfo, error) {

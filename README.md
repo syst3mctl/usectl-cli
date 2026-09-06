@@ -286,7 +286,9 @@ from the addon and would be overwritten.
 
 | Command | Description |
 |---|---|
-| `usectl machines groups <machine>` | Isolated namespaces within a machine |
+| `usectl machines groups list\|create\|delete <machine>` | Isolated namespaces within a machine |
+| `usectl machines pods set <machine> <pod> group=stage\|none` | Move a pod between groups |
+| `usectl machines groups move-addon <machine> <addon> <group>` | Move an addon (`--pvc leave\|destroy`) |
 | `usectl machines members <machine>` | Members, roles, invitations |
 | `usectl machines quota <machine>` | Quota, recommendations, resize previews |
 | `usectl machines domains <machine>` | Custom domains |
