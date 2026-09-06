@@ -28,7 +28,7 @@ Requires the 'cron' addon to be enabled on the machine.`,
 }
 
 var cronListCmd = &cobra.Command{
-	Use:     "list <project-id>",
+	Use:     "list [machine]",
 	Aliases: []string{"ls"},
 	Short:   "List all cron jobs for a machine",
 	Example: `  usectl cron list a8f15889
@@ -49,9 +49,9 @@ var cronListCmd = &cobra.Command{
 		}
 
 		if len(crons) == 0 {
-			fmt.Println("No cron jobs found for this project.")
+			fmt.Println("No cron jobs found for this machine.")
 			fmt.Println("\nHint: Add a cron job with:")
-			fmt.Println("  usectl cron add <project-id> --name cleanup --schedule '*/5 * * * *' --command './cleanup.sh'")
+			fmt.Println("  usectl cron add [machine] --name cleanup --schedule '*/5 * * * *' --command './cleanup.sh'")
 			return nil
 		}
 
@@ -73,7 +73,7 @@ var cronListCmd = &cobra.Command{
 }
 
 var cronAddCmd = &cobra.Command{
-	Use:   "add <project-id>",
+	Use:   "add [machine]",
 	Short: "Add a new cron job to a machine",
 	Long: `Create a scheduled cron job. The job runs in the same container image
 as the machine's deployment with access to all addon env vars.
@@ -116,7 +116,7 @@ Common presets:
 }
 
 var cronUpdateCmd = &cobra.Command{
-	Use:   "update <project-id> <cron-id>",
+	Use:   "update [machine] <cron-id>",
 	Short: "Update a cron job's schedule, command, or enabled state",
 	Example: `  usectl cron update a8f15889 d4e5f6a7 --schedule "0 3 * * *"
   usectl cron update a8f15889 d4e5f6a7 --enabled false
@@ -155,7 +155,7 @@ var cronUpdateCmd = &cobra.Command{
 }
 
 var cronDeleteCmd = &cobra.Command{
-	Use:     "delete <project-id> <cron-id>",
+	Use:     "delete [machine] <cron-id>",
 	Aliases: []string{"rm", "remove"},
 	Short:   "Delete a cron job",
 	Example: `  usectl cron delete a8f15889 d4e5f6a7`,

@@ -24,13 +24,13 @@ See PROMPT_explicit_build_arg_checkbox.md for the full design.`,
 }
 
 var (
-	varsProjectDefaultBT    string
-	varsProjectDotenvAuto   bool
-	varsProjectDotenvPath   string
+	varsProjectDefaultBT  string
+	varsProjectDotenvAuto bool
+	varsProjectDotenvPath string
 )
 
 var varsProjectDefaultsCmd = &cobra.Command{
-	Use:   "project-defaults <project-id>",
+	Use:   "project-defaults [machine]",
 	Short: "Set the machine-level default build_target + .env file config",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -63,7 +63,7 @@ var (
 )
 
 var varsAppDefaultsCmd = &cobra.Command{
-	Use:   "app-defaults <project-id> <app-id>",
+	Use:   "app-defaults [machine] <app-id>",
 	Short: "Override the machine default for a single app (or clear an override)",
 	Long: `Per-app overrides are nullable — pass --clear-build-target or
 --clear-dotenv-path to remove an override and inherit the machine default.`,
@@ -99,7 +99,7 @@ var varsAppDefaultsCmd = &cobra.Command{
 }
 
 var varsExposureGetCmd = &cobra.Command{
-	Use:   "exposure <project-id> <app-id>",
+	Use:   "exposure [machine] <app-id>",
 	Short: "Show the resolved exposure (project + app defaults + per-key overrides)",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -143,7 +143,7 @@ var (
 )
 
 var varsExposureSetCmd = &cobra.Command{
-	Use:   "expose <project-id> <app-id> <key>",
+	Use:   "expose [machine] <app-id> <key>",
 	Short: "Set a per-variable build-target override for an app",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -165,7 +165,7 @@ var varsExposureSetCmd = &cobra.Command{
 }
 
 var varsExposureDeleteCmd = &cobra.Command{
-	Use:   "unexpose <project-id> <app-id> <key>",
+	Use:   "unexpose [machine] <app-id> <key>",
 	Short: "Delete a per-variable override (revert to the resolved default)",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {

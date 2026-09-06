@@ -21,8 +21,14 @@ type ProjectAddon struct {
 	Replicas        int               `json:"replicas"`
 	DedicatedConfig json.RawMessage   `json:"dedicated_config,omitempty"`
 	IsStopped       bool              `json:"is_stopped"`
-	CreatedAt       string            `json:"created_at"`
-	UpdatedAt       string            `json:"updated_at"`
+	// WorkloadName is the StatefulSet/pod base name for a dedicated addon
+	// (e.g. "runbyagents-postgres"), supplied by the API so a client can map
+	// the addon to its pods without guessing at the naming scheme. Empty for
+	// managed addons, which have no pods of their own.
+	WorkloadName string  `json:"workload_name,omitempty"`
+	GroupID      *string `json:"group_id,omitempty"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 
 type AddonCatalogEntry struct {
@@ -33,6 +39,21 @@ type AddonCatalogEntry struct {
 	EnvVars     []string `json:"env_vars"`
 	HasUI       bool     `json:"has_ui"`
 	UITool      string   `json:"ui_tool,omitempty"`
+	// SupportsDedicated is false for managed-only addons (S3, cron, oauth2 …).
+	// Offering "dedicated" for those asks a question the server will reject.
+	SupportsDedicated bool `json:"supports_dedicated"`
+	// SizePresets is the real dedicated-mode ladder, published by the
+	// provisioner. Empty on an older API, in which case the size is asked for
+	// as free text and validated server-side.
+	SizePresets []AddonSizePreset `json:"size_presets,omitempty"`
+}
+
+// AddonSizePreset is one rung of an addon's dedicated-mode size ladder.
+type AddonSizePreset struct {
+	Name       string `json:"name"`
+	CPUMillis  int    `json:"cpu_millis"`
+	MemoryMiB  int    `json:"memory_mib"`
+	StorageGiB int    `json:"storage_gib"`
 }
 
 type AddonCatalogWithStatus struct {

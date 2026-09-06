@@ -22,6 +22,16 @@ type Config struct {
 	RefreshToken string `json:"refresh_token,omitempty"`
 	APIURL       string `json:"api_url"`
 	GitHubToken  string `json:"github_token,omitempty"`
+	// Machine is the persisted default machine set by `usectl use`. It is the
+	// LOWEST-priority way to name a machine — an explicit argument, -m, and
+	// USECTL_MACHINE all beat it — so a stale value here can never silently
+	// override something the caller actually typed.
+	Machine string `json:"machine,omitempty"`
+	// Pod is the default pod within Machine, set by `usectl use <machine> <pod>`.
+	// Same precedence rules as Machine: any pod named on the command line wins,
+	// and it is cleared whenever the default machine changes, since a pod name
+	// only means something inside one machine.
+	Pod string `json:"pod,omitempty"`
 }
 
 // configPath returns ~/.usectl/config.json

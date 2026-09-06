@@ -5,12 +5,18 @@ import "fmt"
 // ========== Domains ==========
 
 type Domain struct {
-	ID        string  `json:"id"`
-	Domain    string  `json:"domain"`
-	ProjectID *string `json:"project_id,omitempty"`
-	OwnerID   string  `json:"owner_id"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
+	ID     string  `json:"id"`
+	Domain string  `json:"domain"`
+	// ProjectAppID pins the domain to one pod (mig 022). A machine's domains
+	// are per-POD, which is why ProjectApp.Domain reads empty on any machine
+	// created after that migration — the legacy column stopped being written.
+	ProjectAppID *string `json:"project_app_id,omitempty"`
+	ProjectID    *string `json:"project_id,omitempty"`
+	OwnerID      string  `json:"owner_id"`
+	Verified     bool    `json:"verified"`
+	SSLStatus    string  `json:"ssl_status,omitempty"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 
 type CreateDomainRequest struct {

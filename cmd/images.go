@@ -32,7 +32,7 @@ var imagesCmd = &cobra.Command{
 }
 
 var imagesPushCmd = &cobra.Command{
-	Use:   "push <project-id> <app-id> <local-image>",
+	Use:   "push [machine] <app-id> <local-image>",
 	Short: "Upload a locally built image and deploy it",
 	Long: `Push an image you built locally into the platform registry.
 
@@ -148,7 +148,7 @@ usectl apps update --image).`,
 		fmt.Printf("✓ %s\n", res.Message)
 		fmt.Printf("  Image: %s\n", res.ImageRef)
 		fmt.Printf("  Job:   %s\n", res.Job)
-		fmt.Printf("\n  Deploy it:\n    usectl projects deploy %s\n", projectID)
+		fmt.Printf("\n  Deploy it:\n    usectl machines deploy %s\n", projectID)
 		return nil
 	},
 }

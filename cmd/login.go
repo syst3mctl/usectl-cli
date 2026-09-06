@@ -12,19 +12,53 @@ import (
 	"golang.org/x/term"
 )
 
+var loginPassword bool
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with the usectl platform",
-	Long: `Interactively log in with your email and password. The JWT token is saved
-to ~/.usectl/config.json and used for all subsequent API calls.
+	Long: `Log in and save the credentials to ~/.usectl/config.json.
 
-Use --api-url to connect to a different platform instance.`,
+By default this opens your browser, you approve the request in the dashboard,
+and the CLI receives its token automatically — no password is typed into the
+terminal and none is stored.
+
+Use --password for the email/password prompt instead. That is the right choice
+on a machine with no browser (a bare server, or SSH without port forwarding)
+and in CI, where nothing can click Approve.`,
 	Example: `  usectl login
+  usectl login --password
   usectl login --api-url https://my-instance.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		client := api.NewClientUnauth(apiURL)
+		base := apiURL
+		if base == "" {
+			if cfg, _ := config.Load(); cfg != nil {
+				base = cfg.APIURL
+			}
+		}
+		if base == "" {
+			base = config.DefaultAPIURL
+		}
 
-		var email, password string
+		// The browser flow needs a browser AND someone to click Approve, so
+		// fall back automatically when stdin is not a terminal rather than
+		// hanging for five minutes in a pipeline.
+		useWeb := !loginPassword
+		if useWeb && !term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Fprintln(os.Stderr, "Not a terminal — falling back to password login.")
+			useWeb = false
+		}
+
+		if useWeb {
+			resp, err := runWebLogin(base)
+			if err != nil {
+				return err
+			}
+			return saveLogin(resp, apiURL)
+		}
+
+		client := api.NewClientUnauth(base)
+		var email string
 		fmt.Print("Email: ")
 		fmt.Scanln(&email)
 		fmt.Print("Password: ")
@@ -32,27 +66,16 @@ Use --api-url to connect to a different platform instance.`,
 		if err != nil {
 			return fmt.Errorf("read password: %w", err)
 		}
-		password = strings.TrimSpace(string(bytePw))
 		fmt.Println()
 
-		resp, err := client.Login(api.LoginRequest{Email: email, Password: password})
+		resp, err := client.Login(api.LoginRequest{
+			Email:    email,
+			Password: strings.TrimSpace(string(bytePw)),
+		})
 		if err != nil {
 			return err
 		}
-
-		// Save token and API URL.
-		cfg, _ := config.Load()
-		cfg.Token = resp.Token
-		cfg.RefreshToken = resp.RefreshToken
-		if apiURL != "" {
-			cfg.APIURL = apiURL
-		}
-		if err := config.Save(cfg); err != nil {
-			return fmt.Errorf("save config: %w", err)
-		}
-
-		fmt.Printf("✓ Logged in as %s (%s)\n", resp.User.Username, resp.User.Email)
-		return nil
+		return saveLogin(resp, apiURL)
 	},
 }
 
@@ -176,6 +199,7 @@ func init() {
 
 	profileCmd.AddCommand(profileUpdateCmd)
 
+	loginCmd.Flags().BoolVar(&loginPassword, "password", false, "Sign in with email and password instead of the browser")
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(registerCmd)
 	rootCmd.AddCommand(profileCmd)

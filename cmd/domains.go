@@ -111,8 +111,8 @@ var domainsAttachCmd = &cobra.Command{
 All specified domains will point to the same project.
 
 Examples:
-  usectl domains attach <domain-id> --project <project-id>
-  usectl domains attach <id1> <id2> <id3> --project <project-id>`,
+  usectl domains attach <domain-id> --project [machine]
+  usectl domains attach <id1> <id2> <id3> --project [machine]`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)

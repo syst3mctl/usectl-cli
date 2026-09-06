@@ -24,12 +24,12 @@ Subcommands:
 var s3ListPrefix string
 
 var s3ListCmd = &cobra.Command{
-	Use:   "list <project-id>",
+	Use:   "list [machine]",
 	Short: "List objects in a machine's S3 bucket",
 	Long: `Returns all objects (files and directories) in the machine's S3 bucket.
 Use --prefix to filter by path prefix.`,
-	Example: `  usectl projects s3 list a8f15889
-  usectl projects s3 list a8f15889 --prefix uploads/`,
+	Example: `  usectl machines s3 list a8f15889
+  usectl machines s3 list a8f15889 --prefix uploads/`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -74,12 +74,12 @@ var (
 )
 
 var s3DownloadCmd = &cobra.Command{
-	Use:   "download <project-id>",
+	Use:   "download [machine]",
 	Short: "Download an object from the machine's S3 bucket",
 	Long: `Download a single object by its key. The file is saved to the current
 directory using the object's filename, or to a custom path with --output.`,
-	Example: `  usectl projects s3 download a8f15889 --key uploads/photo.jpg
-  usectl projects s3 download a8f15889 --key data.csv --output /tmp/data.csv`,
+	Example: `  usectl machines s3 download a8f15889 --key uploads/photo.jpg
+  usectl machines s3 download a8f15889 --key data.csv --output /tmp/data.csv`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -100,12 +100,12 @@ directory using the object's filename, or to a custom path with --output.`,
 var s3ToggleEnable bool
 
 var s3ToggleCmd = &cobra.Command{
-	Use:   "toggle <project-id>",
+	Use:   "toggle [machine]",
 	Short: "Enable or disable S3 storage for a machine",
 	Long: `Toggle S3 storage on or off. When enabled, a bucket and dedicated
 user are provisioned. When disabled, the S3 flag is cleared (bucket remains).`,
-	Example: `  usectl projects s3 toggle a8f15889 --enable
-  usectl projects s3 toggle a8f15889 --enable=false`,
+	Example: `  usectl machines s3 toggle a8f15889 --enable
+  usectl machines s3 toggle a8f15889 --enable=false`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -127,7 +127,7 @@ user are provisioned. When disabled, the S3 flag is cleared (bucket remains).`,
 }
 
 var s3CdnCmd = &cobra.Command{
-	Use:   "cdn <project-id>",
+	Use:   "cdn [machine]",
 	Short: "Toggle public CDN access for a machine's S3 bucket",
 	Long: `Enable or disable public CDN access for a machine's S3 bucket.
 When enabled, files are publicly accessible at:
@@ -135,7 +135,7 @@ When enabled, files are publicly accessible at:
 
 When disabled, all CDN URLs return 403 Forbidden.
 Use ?v=<timestamp> query parameters for cache busting.`,
-	Example: `  usectl projects s3 cdn a8f15889          # Toggle CDN on/off
+	Example: `  usectl machines s3 cdn a8f15889          # Toggle CDN on/off
   # CDN URL: https://cdn.usectl.com/a0545a2c/photo.jpg`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

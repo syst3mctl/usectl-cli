@@ -19,7 +19,7 @@ ceiling (upgrade plan, scale down, or rollover legacy oversized pods).`,
 }
 
 var quotaGetCmd = &cobra.Command{
-	Use:   "get <project-id>",
+	Use:   "get [machine]",
 	Short: "Get quota status for a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -89,7 +89,7 @@ var (
 )
 
 var quotaPreviewCmd = &cobra.Command{
-	Use:   "preview <project-id>",
+	Use:   "preview [machine]",
 	Short: "Dry-run a plan resize and check if the new totals fit the existing apps",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -111,7 +111,7 @@ var quotaPreviewCmd = &cobra.Command{
 }
 
 var quotaRolloverCmd = &cobra.Command{
-	Use:   "rollover <project-id>",
+	Use:   "rollover [machine]",
 	Short: "Restart legacy oversized pods so they come back under the per-pod default",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -186,7 +186,7 @@ var githubInstallationsCmd = &cobra.Command{
 	Short:   "List GitHub App installations (shows installation IDs and accounts)",
 	Long: `List all GitHub App installations for your authenticated GitHub account.
 The installation ID is used internally for cloning private repos during builds.
-It is auto-detected during 'usectl projects create' if you are logged in.`,
+It is auto-detected during 'usectl machines create' if you are logged in.`,
 	Example: `  usectl github installations
   usectl gh installs --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {

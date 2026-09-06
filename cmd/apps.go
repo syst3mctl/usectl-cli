@@ -150,7 +150,7 @@ Subcommands:
 }
 
 var appsListCmd = &cobra.Command{
-	Use:   "list <project-id>",
+	Use:   "list [machine]",
 	Short: "List all apps in a project",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -166,7 +166,7 @@ var appsListCmd = &cobra.Command{
 			return output.JSON(apps)
 		}
 		if len(apps) == 0 {
-			fmt.Println("No apps in this project.")
+			fmt.Println("No apps in this machine.")
 			return nil
 		}
 		rows := make([][]string, len(apps))
@@ -249,7 +249,7 @@ func parseExtraPorts(specs []string) ([]api.AppPort, error) {
 }
 
 var appsCreateCmd = &cobra.Command{
-	Use:   "create <project-id>",
+	Use:   "create [machine]",
 	Short: "Add a new app pod to an existing project",
 	Long: `Create a web/worker/release pod inside an existing project. Each app
 gets its own GitHub repo + branch but shares the machine's addons and
@@ -373,7 +373,7 @@ var (
 )
 
 var appsUpdateCmd = &cobra.Command{
-	Use:   "update <project-id> <app-id>",
+	Use:   "update [machine] <app-id>",
 	Short: "Update settings on an existing app",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -478,7 +478,7 @@ var appsUpdateCmd = &cobra.Command{
 }
 
 var appsDeleteCmd = &cobra.Command{
-	Use:   "delete <project-id> <app-id>",
+	Use:   "delete [machine] <app-id>",
 	Short: "Delete an app and tear down its K8s resources",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -495,7 +495,7 @@ var appsDeleteCmd = &cobra.Command{
 }
 
 var appsStartCmd = &cobra.Command{
-	Use:   "start <project-id> <app-id>",
+	Use:   "start [machine] <app-id>",
 	Short: "Start an app (restore replicas from 0)",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -512,7 +512,7 @@ var appsStartCmd = &cobra.Command{
 }
 
 var appsStopCmd = &cobra.Command{
-	Use:   "stop <project-id> <app-id>",
+	Use:   "stop [machine] <app-id>",
 	Short: "Stop an app (scale Deployment to 0)",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -529,7 +529,7 @@ var appsStopCmd = &cobra.Command{
 }
 
 var appsRestartCmd = &cobra.Command{
-	Use:   "restart <project-id> <app-id>",
+	Use:   "restart [machine] <app-id>",
 	Short: "Rolling restart (no rebuild) — picks up new env vars",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -546,7 +546,7 @@ var appsRestartCmd = &cobra.Command{
 }
 
 var appsInternalCmd = &cobra.Command{
-	Use:   "internal <project-id> <app-id>",
+	Use:   "internal [machine] <app-id>",
 	Short: "Show the cluster-internal address for app-to-app calls",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -588,7 +588,7 @@ var appsInternalCmd = &cobra.Command{
 }
 
 var appsVariablesCmd = &cobra.Command{
-	Use:     "variables <project-id> <app-id>",
+	Use:     "variables [machine] <app-id>",
 	Aliases: []string{"vars"},
 	Short:   "Show resolved env vars (user + addon-injected, masked by default)",
 	Args:    cobra.ExactArgs(2),
@@ -630,7 +630,7 @@ var appsVariablesCmd = &cobra.Command{
 }
 
 var appsRevealCmd = &cobra.Command{
-	Use:   "reveal <project-id> <app-id> <key>",
+	Use:   "reveal [machine] <app-id> <key>",
 	Short: "Reveal the unmasked value of a single variable (audited)",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -658,7 +658,7 @@ var appsEnvsCmd = &cobra.Command{
 }
 
 var appsEnvsListCmd = &cobra.Command{
-	Use:   "list <project-id> <app-id>",
+	Use:   "list [machine] <app-id>",
 	Short: "List per-app + inherited project env vars",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -691,7 +691,7 @@ var appsEnvsListCmd = &cobra.Command{
 }
 
 var appsEnvsSetCmd = &cobra.Command{
-	Use:   "set <project-id> <app-id> KEY=VALUE [KEY=VALUE ...]",
+	Use:   "set [machine] <app-id> KEY=VALUE [KEY=VALUE ...]",
 	Short: "Set one or more per-app env vars",
 	Args:  cobra.MinimumNArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -716,7 +716,7 @@ var appsEnvsSetCmd = &cobra.Command{
 }
 
 var appsEnvsDeleteCmd = &cobra.Command{
-	Use:   "delete <project-id> <app-id> KEY [KEY ...]",
+	Use:   "delete [machine] <app-id> KEY [KEY ...]",
 	Short: "Delete one or more per-app env vars",
 	Args:  cobra.MinimumNArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -741,7 +741,7 @@ var appsAddonsCmd = &cobra.Command{
 }
 
 var appsAddonsListCmd = &cobra.Command{
-	Use:   "list <project-id> <app-id>",
+	Use:   "list [machine] <app-id>",
 	Short: "List addons attached to a single app",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -770,7 +770,7 @@ var appsAddonsListCmd = &cobra.Command{
 }
 
 var appsAddonsAttachCmd = &cobra.Command{
-	Use:   "attach <project-id> <app-id> <addon-id>",
+	Use:   "attach [machine] <app-id> <addon-id>",
 	Short: "Attach an addon to an app (inject its env vars)",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -787,7 +787,7 @@ var appsAddonsAttachCmd = &cobra.Command{
 }
 
 var appsAddonsDetachCmd = &cobra.Command{
-	Use:   "detach <project-id> <app-id> <addon-id>",
+	Use:   "detach [machine] <app-id> <addon-id>",
 	Short: "Detach an addon from an app (stop injecting its env vars)",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -806,7 +806,7 @@ var appsAddonsDetachCmd = &cobra.Command{
 // --- traffic + insights ---
 
 var appsTrafficCmd = &cobra.Command{
-	Use:   "traffic <project-id> <app-id>",
+	Use:   "traffic [machine] <app-id>",
 	Short: "Show Traefik request metrics (rate, p50/p95/p99, bytes, codes)",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -851,7 +851,7 @@ var appsTrafficCmd = &cobra.Command{
 }
 
 var appsInsightsCmd = &cobra.Command{
-	Use:   "insights <project-id> <app-id>",
+	Use:   "insights [machine] <app-id>",
 	Short: "Show per-pod CPU/memory history + recent error logs",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -904,7 +904,7 @@ var (
 )
 
 var appsResizeCmd = &cobra.Command{
-	Use:   "resize <project-id> <app-id>",
+	Use:   "resize [machine] <app-id>",
 	Short: "Resize a single app's pod (memory / CPU)",
 	Long: `Change how much memory and/or CPU each replica of this app gets.
 
@@ -914,7 +914,7 @@ pods get the new size with no restart and no downtime. If the kubelet rejects
 above the new memory limit), the deployer falls back to patching the
 Deployment template, which triggers a rolling restart.
 
-The namespace ResourceQuota (sized from the project's plan) is the only upper
+The namespace ResourceQuota (sized from the machine's plan) is the only upper
 bound — bigger pods leave less room for other apps and addons in the same
 project. A 409 response includes a precise breakdown of where the budget goes.
 
@@ -1010,7 +1010,7 @@ Examples:
 }
 
 var appsEnvsProtectCmd = &cobra.Command{
-	Use:   "protect <project-id> <app-id> <protect|open> KEY [KEY ...]",
+	Use:   "protect [machine] <app-id> <protect|open> KEY [KEY ...]",
 	Short: "Mark per-app env vars protected (write-only) or open",
 	Long: `Control whether a per-app variable's value can be read back.
 

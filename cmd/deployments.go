@@ -37,7 +37,7 @@ redeploys.`,
 }
 
 var deploymentsListCmd = &cobra.Command{
-	Use:   "list <machine-id>",
+	Use:   "list [machine]",
 	Short: "List a machine's deployments, newest first",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -96,7 +96,7 @@ var deploymentsListCmd = &cobra.Command{
 }
 
 var deploymentsRollbackCmd = &cobra.Command{
-	Use:   "rollback <machine-id> <app-id> <deployment-id>",
+	Use:   "rollback [machine] <app-id> <deployment-id>",
 	Short: "Redeploy the image a previous deployment ran",
 	Long: `Rolls one app back to the image a previous deployment ran.
 

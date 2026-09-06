@@ -24,7 +24,7 @@ Roles:
 }
 
 var membersListCmd = &cobra.Command{
-	Use:   "list <project-id>",
+	Use:   "list [machine]",
 	Short: "List members of a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -53,7 +53,7 @@ var membersListCmd = &cobra.Command{
 }
 
 var membersRoleCmd = &cobra.Command{
-	Use:   "role <project-id> <user-id> <role>",
+	Use:   "role [machine] <user-id> <role>",
 	Short: "Change a member's role (owner|developer|viewer). Owner-only.",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -70,7 +70,7 @@ var membersRoleCmd = &cobra.Command{
 }
 
 var membersRemoveCmd = &cobra.Command{
-	Use:     "remove <project-id> <user-id>",
+	Use:     "remove [machine] <user-id>",
 	Aliases: []string{"rm"},
 	Short:   "Remove a member from a machine. Owner-only.",
 	Args:    cobra.ExactArgs(2),
@@ -88,8 +88,8 @@ var membersRemoveCmd = &cobra.Command{
 }
 
 var membersMyRoleCmd = &cobra.Command{
-	Use:   "my-role <project-id>",
-	Short: "Show my effective role on a project (and resource scope, if any)",
+	Use:   "my-role [machine]",
+	Short: "Show my effective role on a machine (and resource scope, if any)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -115,7 +115,7 @@ var membersMyRoleCmd = &cobra.Command{
 }
 
 var membersScopeGetCmd = &cobra.Command{
-	Use:   "scope-get <project-id> <user-id>",
+	Use:   "scope-get [machine] <user-id>",
 	Short: "Show the developer's resource whitelist (apps/addons)",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -150,7 +150,7 @@ var (
 )
 
 var membersScopeSetCmd = &cobra.Command{
-	Use:   "scope-set <project-id> <user-id>",
+	Use:   "scope-set [machine] <user-id>",
 	Short: "Replace a developer's resource whitelist (use --clear to remove all restrictions)",
 	Long: `Sets the developer's allowed apps/addons. Pass --app/--addon flags
 (repeatable) to grant access to specific resources. The whitelist is
@@ -188,9 +188,9 @@ unrestricted developer access.`,
 // --- Project invitations ---
 
 var membersInviteCmd = &cobra.Command{
-	Use:   "invitations",
+	Use:     "invitations",
 	Aliases: []string{"invites"},
-	Short: "Manage machine invitations (per-machine, separate from org invites)",
+	Short:   "Manage machine invitations (per-machine, separate from org invites)",
 }
 
 var (
@@ -199,7 +199,7 @@ var (
 )
 
 var membersInviteCreateCmd = &cobra.Command{
-	Use:   "create <project-id>",
+	Use:   "create [machine]",
 	Short: "Invite a user to a machine by email. Owner-only.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -225,8 +225,8 @@ var membersInviteCreateCmd = &cobra.Command{
 }
 
 var membersInviteListCmd = &cobra.Command{
-	Use:   "list <project-id>",
-	Short: "List pending invitations on a project",
+	Use:   "list [machine]",
+	Short: "List pending invitations on a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
@@ -254,7 +254,7 @@ var membersInviteListCmd = &cobra.Command{
 }
 
 var membersInviteRevokeCmd = &cobra.Command{
-	Use:   "revoke <project-id> <invitation-id>",
+	Use:   "revoke [machine] <invitation-id>",
 	Short: "Revoke a pending invitation. Owner-only.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {

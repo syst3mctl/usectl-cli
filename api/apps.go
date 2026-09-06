@@ -9,9 +9,14 @@ import (
 // ========== Project Apps (multi-app pods) ==========
 
 type ProjectApp struct {
-	ID                 string          `json:"id"`
-	ProjectID          string          `json:"project_id"`
-	Name               string          `json:"name"`
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	Name      string `json:"name"`
+	// SourceType (mig 065) is "git" or "image". An image-sourced pod has no
+	// repo, no branch and no GitHub App involvement, and skips the builder
+	// entirely. Empty means git, for pods predating the migration.
+	SourceType         string          `json:"source_type,omitempty"`
+	ImageRef           string          `json:"image_ref,omitempty"`
 	RepoURL            string          `json:"repo_url"`
 	Branch             string          `json:"branch"`
 	Domain             string          `json:"domain"`

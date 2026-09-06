@@ -202,10 +202,40 @@ func (c *Client) VerifyDomain(domainID string) (map[string]interface{}, error) {
 
 // ========== Project domains list ==========
 
-func (c *Client) GetProjectDomains(projectID string) ([]Domain, error) {
-	var domains []Domain
-	err := c.Get(fmt.Sprintf("/api/projects/%s/domains", projectID), &domains)
-	return domains, err
+// GetProjectDomains returns the domain NAMES attached to a machine.
+//
+// The endpoint responds {"domains": ["a.example.com", ...]} — a wrapped array
+// of bare strings. The client previously decoded it into a []Domain, which
+// silently produced an empty slice and a nil error, so this call has always
+// reported "no domains" for machines that had plenty.
+//
+// Names only: no ids, and no project_app_id. Use ListProjectDomainRecords when
+// you need to know which pod a domain is pinned to.
+func (c *Client) GetProjectDomains(projectID string) ([]string, error) {
+	var resp struct {
+		Domains []string `json:"domains"`
+	}
+	err := c.Get(fmt.Sprintf("/api/projects/%s/domains", projectID), &resp)
+	return resp.Domains, err
+}
+
+// ListProjectDomainRecords returns full Domain records for one machine,
+// including the project_app_id that pins each domain to a pod.
+//
+// Filtered client-side from the global /api/domains listing because the
+// per-project endpoint above returns names only.
+func (c *Client) ListProjectDomainRecords(projectID string) ([]Domain, error) {
+	all, err := c.ListDomains()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Domain, 0, 8)
+	for _, d := range all {
+		if d.ProjectID != nil && *d.ProjectID == projectID {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 
 // ========== Cancel deployment ==========

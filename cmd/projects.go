@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -20,31 +21,39 @@ import (
 var projectsCmd = &cobra.Command{
 	Use:     "machines",
 	Aliases: []string{"machine", "m", "projects", "project", "p"},
-	Short:   "Manage machines — create, deploy, update, delete, and monitor applications",
-	Long: `Manage the full lifecycle of applications on the usectl platform.
+	Short:   "Manage machines — create, resize, deploy, monitor",
+	Long: `A MACHINE is a Kubernetes namespace plus a resource wallet: vCPU, RAM,
+storage and one billing subscription. It holds no code of its own.
 
-A machine (a.k.a. "project" in the API) represents a deployable application
-linked to a GitHub repository. Each machine gets its own Kubernetes namespace,
-optional PostgreSQL database, and optional S3 storage bucket.
+A POD is one workload inside a machine. Repository and branch (or a prebuilt
+image), domain, ports, visibility, container limits and rollout strategy are
+all per-pod — a machine with three pods has three repos and three sets of
+ports.
+
+  usectl machines create api --vcpu 2 --ram 4 --storage 10
+  usectl machines pods create api web --repo https://github.com/me/api --port 8080
+  usectl machines pods api
+
+Addons are provisioned per machine and must be ATTACHED to a pod before that
+pod receives their credentials as environment variables.
+
+Machines, pods and addons can all be referred to by name. Set a default with
+'usectl use <machine>' (or -m / $USECTL_MACHINE) and the machine argument
+becomes optional everywhere.
+
+Where a command takes both a machine and a pod (or addon), the order does not
+matter — machine and pod names resolve against different collections, so only
+one reading of the pair can be valid.
 
 Subcommands:
-  list         List all machines with status and features
-  get          Show detailed machine info including deployments
-  create       Create a new machine from a GitHub repository
-  update       Modify machine settings (domain, branch, port)
-  delete       Delete a machine and all its resources (namespace, DB, S3)
-  deploy       Trigger a new build and deployment
-  deployments  List all deployments for a machine
-  rollback     Roll back to a previous deployment
-  start/stop   Scale the machine's containers up or down
-  status       Check if the machine's containers are running
-  logs         View live runtime logs from the application
-  shell        Connect to an interactive SPDY shell in the running pod
-  diagnostics  View K8s crash reports, reasons, and previous logs
-  build-logs   View build and deploy logs for a specific deployment
-  stats        View CPU, memory, and network usage metrics
-  pods         List/inspect/restart pods running inside the machine
-  s3           Manage S3 object storage for the machine`,
+  list / get / create / delete   machine lifecycle
+  pods                           every pod: config, limits, node, addons
+  addons                         provision and inspect addons
+  usage / quota                  consumption against the plan
+  settings                       machine-level configuration
+  members / groups               access control and namespace isolation
+  deploy / deployments / rollback / logs / shell / diagnostics
+  enter                          interactive shell scoped to one machine`,
 }
 
 var projectsListCmd = &cobra.Command{
@@ -56,9 +65,9 @@ Admin users see all projects. Columns include ID, name, domain, type,
 latest deployment status, enabled features (db/s3), and branch.
 
 Use --json for structured output suitable for scripting or AI agents.`,
-	Example: `  usectl projects list
-  usectl projects list --json
-  usectl p ls`,
+	Example: `  usectl machines list
+  usectl machines list --json
+  usectl m ls`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
@@ -73,47 +82,49 @@ Use --json for structured output suitable for scripting or AI agents.`,
 			return output.JSON(projects)
 		}
 
+		// DOMAIN and BRANCH deliberately absent: both are per-pod settings.
+		// A machine with three pods has three branches and up to three
+		// domains, so a single column here could only ever be misleading.
+		// `usectl machines pods <machine>` is where they belong.
 		rows := make([][]string, len(projects))
 		for i, pw := range projects {
 			p := pw.Project
-			features := ""
-			if p.NeedsDB {
-				features += "db"
-			}
-			if p.NeedsS3 {
-				if features != "" {
-					features += ","
-				}
-				features += "s3"
-			}
-			if features == "" {
-				features = "-"
-			}
 			status := "-"
 			if pw.LatestDeployment != nil {
 				status = pw.LatestDeployment.Status
 			}
-			rows[i] = []string{p.ID, p.Name, p.Domain, p.ProjectType, status, features, p.Branch}
+			rows[i] = []string{
+				output.Dim(p.ID),
+				output.Bold(p.Name),
+				deployStatusColored(status),
+				trimFloat(p.VCPU),
+				trimFloat(p.RAMGB) + "G",
+				trimFloat(p.StorageGB) + "G",
+				billingSummary(p),
+			}
 		}
-		output.Table([]string{"ID", "NAME", "DOMAIN", "TYPE", "STATUS", "FEATURES", "BRANCH"}, rows)
+		output.Table([]string{"ID", "NAME", "STATUS", "VCPU", "RAM", "STORAGE", "BILLING"}, rows)
 		return nil
 	},
 }
 
 var projectsGetCmd = &cobra.Command{
-	Use:   "get <id>",
+	Use:   "get [machine]",
 	Short: "Get detailed project information including database and S3 status",
 	Long: `Returns detailed information about a single project, including repo URL,
 branch, domain, port, database provisioning status, S3 bucket status,
 creation date, and recent deployment history.
 
 The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
-	Example: `  usectl projects get a8f15889
-  usectl projects get a8f15889-3636-402d-99a1-3492ba6b4383 --json`,
-	Args: cobra.ExactArgs(1),
+	Example: `  usectl machines get a8f15889
+  usectl machines get a8f15889-3636-402d-99a1-3492ba6b4383 --json`,
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		resp, err := client.GetProjectFull(args[0])
@@ -150,54 +161,91 @@ The <id> can be the full UUID or a prefix (e.g. first 8 chars).`,
 		if strings.Contains(project.Domain, ".") {
 			displayDomain = project.Domain
 		}
-		output.Table([]string{"FIELD", "VALUE"}, [][]string{
+		fields := [][]string{
 			{"ID", project.ID},
 			{"Name", project.Name},
-			{"Repo", project.RepoURL},
-			{"Branch", project.Branch},
-			{"Domain", displayDomain},
-			{"Type", project.ProjectType},
-			{"Port", strconv.Itoa(project.Port)},
-			{"Database", dbStatus},
-			{"Object Storage", s3Status},
-			{"Preview Envs", previewEnvs},
+			{"Namespace", "kdeploy-" + project.Name},
 			{"Created", project.CreatedAt},
-		})
+			{"", ""},
+			{"vCPU", trimFloat(project.VCPU)},
+			{"RAM", trimFloat(project.RAMGB) + " GB"},
+			{"Storage", trimFloat(project.StorageGB) + " GB"},
+			{"", ""},
+			{"Billing", project.BillingStatus},
+			{"Interval", project.BillingInterval},
+			{"Price", fmt.Sprintf("$%.2f / %s", float64(project.MonthlyPriceCents)/100, orDash(project.BillingInterval))},
+		}
+		if project.TrialEndsAt != nil {
+			fields = append(fields, []string{"Trial ends", *project.TrialEndsAt})
+		}
+		fields = append(fields,
+			[]string{"", ""},
+			[]string{"Database", dbStatus},
+			[]string{"Object Storage", s3Status},
+			[]string{"Preview Envs", previewEnvs},
+		)
+		// Legacy single-app machines still carry these; newer ones keep repo,
+		// branch, domain and port on each pod instead, so only show them when
+		// the machine actually has them set.
+		if project.RepoURL != "" {
+			fields = append(fields,
+				[]string{"", ""},
+				[]string{"Repo (legacy)", project.RepoURL},
+				[]string{"Branch (legacy)", project.Branch},
+				[]string{"Domain (legacy)", displayDomain},
+				[]string{"Port (legacy)", strconv.Itoa(project.Port)},
+			)
+		}
+		output.Table([]string{"FIELD", "VALUE"}, fields)
 
-		// Show recent deployments.
-		if len(resp.Deployments) > 0 {
-			fmt.Println()
-			fmt.Println("Recent Deployments:")
-			limit := len(resp.Deployments)
-			if limit > 5 {
-				limit = 5
+		// Recent deployments come from the paginated endpoint, not the slice
+		// embedded in the machine object: that field is scoped to the legacy
+		// top-level app, so on a per-pod machine it is empty and the section
+		// silently vanished.
+		if page, dErr := client.ListDeployments(args[0], "", "", 1, 5); dErr == nil && page != nil && len(page.Deployments) > 0 {
+			podName := map[string]string{}
+			if apps, aErr := client.ListProjectApps(args[0]); aErr == nil {
+				for _, a := range apps {
+					podName[a.ID] = a.Name
+				}
 			}
-			rows := make([][]string, limit)
-			for i := 0; i < limit; i++ {
-				d := resp.Deployments[i]
+			fmt.Println()
+			fmt.Println(output.Bold("Recent deployments"))
+			rows := make([][]string, 0, len(page.Deployments))
+			for _, d := range page.Deployments {
 				commit := d.CommitHash
 				if len(commit) > 7 {
 					commit = commit[:7]
 				}
-				rows[i] = []string{d.ID, d.Status, commit, d.CreatedAt}
+				pod := "—"
+				if d.ProjectAppID != nil {
+					if n, ok := podName[*d.ProjectAppID]; ok {
+						pod = n
+					}
+				}
+				rows = append(rows, []string{output.Dim(shortID(d.ID)), pod, deployStatusColored(d.Status), commit, d.CreatedAt})
 			}
-			output.Table([]string{"DEPLOYMENT ID", "STATUS", "COMMIT", "CREATED"}, rows)
-			if len(resp.Deployments) > 5 {
-				fmt.Printf("  ... and %d more. Use 'usectl projects deployments %s' to see all.\n", len(resp.Deployments)-5, args[0])
+			output.Table([]string{"ID", "POD", "STATUS", "COMMIT", "CREATED"}, rows)
+			if page.Total > len(page.Deployments) {
+				fmt.Printf("%s\n", output.Dim(fmt.Sprintf("  … %d more — usectl machines deployments %s", page.Total-len(page.Deployments), args[0])))
 			}
 		}
 		return nil
 	},
 }
 
-// Flags for create command
+// Flags for create command.
+//
+// A machine is a namespace + a resource wallet + a billing subscription. What
+// used to live here — repo, branch, domain, port, type — is per-POD config and
+// now belongs to `usectl machines pods create`. The server agrees: CreateProject
+// requires only a name, and stopped auto-generating a <name>.usectl.com domain.
 var (
 	createName      string
-	createRepo      string
-	createBranch    string
-	createDomain    string
-	createType      string
-	createPort      int
+	createVCPU      float64
+	createRAM       string
+	createStorage   string
+	createBilling   string
 	createDB        bool
 	createS3        bool
 	createGHToken   string
@@ -207,76 +255,93 @@ var (
 )
 
 var projectsCreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create a new project from a GitHub repository",
-	Long: `Create a new project linked to a GitHub repository. The project will be
-assigned its own Kubernetes namespace (kdeploy-<name>) and can optionally
-provision a PostgreSQL database (--db) and S3 bucket (--s3).
+	Use:   "create [name]",
+	Short: "Create a new machine (a namespace + resource quota)",
+	Long: `Create a machine: a Kubernetes namespace (kdeploy-<name>), a resource quota
+(vCPU / RAM / storage), and a billing subscription.
 
-The GitHub App installation ID is auto-detected if you have previously run
-'usectl github login'. For private repos, this ensures the build system
-can clone using installation tokens.
+A machine holds no code of its own. Repositories, domains, ports and container
+sizing are per-POD settings — create the machine first, then add pods to it:
 
-Supported project types:
-  service  — Long-running server (Node.js, Go, Python, etc.)
-  static   — Static site served via nginx
+  usectl machines create api --vcpu 2 --ram 4 --storage 10
+  usectl machines pods create api --repo https://github.com/me/api --port 8080
 
-Build modes — does my repo need a Dockerfile?
+Run with no flags on a terminal to be prompted for each value.
 
-  If the repo root contains a Dockerfile, it is used as-is. Otherwise the
-  builder picks ONE of these defaults based on what it finds (in order):
+Sizes accept a bare number of GB or an explicit suffix: --ram 4, --ram 4gb and
+--ram 4096mb are the same machine. The chosen size is always echoed back in GB
+before anything is created.
 
-    next.config.{js,ts,mjs}  → Next.js  (npm run build → next start -p 80)
-    vite.config.{js,ts}      → Vite     (npm run build → nginx serves /dist)
-    package.json             → Node.js  (npm start, listens on port 80)
-    no package.json          → Static   (nginx serves the repo as /)
+Machine names must be unique across the platform, because the namespace is
+derived from the name — "Test CLI" and "test-cli" would resolve to the same
+namespace.`,
+	Example: `  # Interactive — prompts for name, vCPU, RAM, storage
+  usectl machines create
 
-  The auto-injected Dockerfiles ALL listen on port 80, so pass --port 80
-  when relying on them. Backends in Go, Python, Rust, Java, or any custom
-  Node setup are not auto-detected — commit your own Dockerfile that
-  EXPOSEs the port and pass --port matching it.
+  # Fully specified
+  usectl machines create test-cli --vcpu 10 --ram 1024mb --storage 2
 
-  Use 'usectl stack-detect --repo <url> --ref <branch>' to preview which
-  build mode will run before calling create.`,
-	Example: `  # Next.js / Vite / generic Node — no Dockerfile in repo
-  usectl machines create --name blog --repo https://github.com/user/blog \\
-    --domain blog --port 80
+  # With addons provisioned up front
+  usectl machines create api --vcpu 2 --ram 4 --storage 20 --db --s3
 
-  # Static HTML site — no Dockerfile, served by nginx
-  usectl machines create --name docs --repo https://github.com/user/docs \\
-    --domain docs --type static
-
-  # Go / Python / Rust backend — Dockerfile required, custom port
-  usectl machines create --name api --repo https://github.com/user/api \\
-    --domain api --port 8080
-
-  # Full-featured with database and S3
-  usectl machines create --name my-app --repo https://github.com/user/app \\
-    --domain my-app --type service --branch main --port 8080 --db --s3
-
-  # With custom environment variables
-  usectl machines create --name my-api --repo https://github.com/user/api \\
-    --domain my-api --port 3000 --env API_KEY=sk-123 --env NODE_ENV=production`,
+  # Machine-wide environment variables
+  usectl machines create api --vcpu 1 --ram 2 --storage 5 \
+    --env NODE_ENV=production --env LOG_LEVEL=debug`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
 
-		// Auto-detect installation ID if not provided.
-		if createInstallID == 0 {
-			cfg, _ := config.Load()
-			if cfg != nil && cfg.GitHubToken != "" {
-				installations, err := client.ListGitHubInstallations(cfg.GitHubToken)
-				if err == nil && len(installations) > 0 {
-					createInstallID = installations[0].ID
-					fmt.Printf("  Auto-detected GitHub App installation: %d (%s)\n",
-						createInstallID, installations[0].Account.Login)
-				}
+		name := createName
+		if len(args) == 1 {
+			name = args[0]
+		}
+
+		ramGB, err := sizeFlag(cmd, "ram", createRAM)
+		if err != nil {
+			return err
+		}
+		storageGB, err := sizeFlag(cmd, "storage", createStorage)
+		if err != nil {
+			return err
+		}
+
+		// Prompt only for what is actually missing, and only when prompting is
+		// permitted. --json / --yes / a piped stdin take the error path below
+		// instead of blocking on a read no caller can see.
+		if interactive() {
+			fmt.Println("Create a machine:")
+			if name == "" {
+				name = ask("Name", "")
+			}
+			if !cmd.Flags().Changed("vcpu") {
+				createVCPU = askFloat("vCPU", createVCPU)
+			}
+			if !cmd.Flags().Changed("ram") {
+				ramGB = askSize("RAM (GB)", ramGB)
+			}
+			if !cmd.Flags().Changed("storage") {
+				storageGB = askSize("Storage (GB)", storageGB)
+			}
+			if !cmd.Flags().Changed("billing") {
+				createBilling = ask("Billing", createBilling)
 			}
 		}
 
-		// Build addons list from --addon flags and legacy --db/--s3.
+		var missing []string
+		if name == "" {
+			missing = append(missing, "name")
+		}
+		if err := requireInteractive(missing,
+			"usectl machines create <name> [--vcpu N] [--ram N] [--storage N]"); err != nil {
+			return err
+		}
+		if createBilling != "month" && createBilling != "year" {
+			return fmt.Errorf("--billing must be 'month' or 'year', got %q", createBilling)
+		}
+
 		allAddons := make(map[string]bool)
 		for _, a := range createAddons {
 			allAddons[a] = true
@@ -287,25 +352,50 @@ Build modes — does my repo need a Dockerfile?
 		if createS3 {
 			allAddons["s3"] = true
 		}
-		var addonsList []string
+		addonsList := make([]string, 0, len(allAddons))
 		for a := range allAddons {
 			addonsList = append(addonsList, a)
 		}
+		sort.Strings(addonsList)
+
+		// Auto-detect the GitHub App installation so pods created later in this
+		// machine can clone private repos without re-supplying it.
+		if createInstallID == 0 {
+			cfg, _ := config.Load()
+			if cfg != nil && cfg.GitHubToken != "" {
+				if installations, iErr := client.ListGitHubInstallations(cfg.GitHubToken); iErr == nil && len(installations) > 0 {
+					createInstallID = installations[0].ID
+				}
+			}
+		}
 
 		req := api.CreateProjectRequest{
-			Name:        createName,
-			RepoURL:     createRepo,
-			Branch:      createBranch,
-			Domain:      createDomain,
-			ProjectType: createType,
-			Port:        createPort,
-			NeedsDB:     createDB || allAddons["database"],
-			NeedsS3:     createS3 || allAddons["s3"],
-			GithubToken: createGHToken,
-			Addons:      addonsList,
+			Name:            name,
+			VCPU:            createVCPU,
+			RAMGB:           ramGB,
+			StorageGB:       storageGB,
+			BillingInterval: createBilling,
+			NeedsDB:         allAddons["database"],
+			NeedsS3:         allAddons["s3"],
+			GithubToken:     createGHToken,
+			Addons:          addonsList,
 		}
 		if createInstallID > 0 {
 			req.InstallationID = &createInstallID
+		}
+
+		if interactive() {
+			fmt.Printf("\n  %-14s  %s\n", "Name", name)
+			fmt.Printf("  %-14s  %s vCPU · %s GB RAM · %s GB storage\n", "Size",
+				trimFloat(createVCPU), trimFloat(ramGB), trimFloat(storageGB))
+			fmt.Printf("  %-14s  %sly\n", "Billing", createBilling)
+			if len(addonsList) > 0 {
+				fmt.Printf("  %-14s  %s\n", "Addons", strings.Join(addonsList, ", "))
+			}
+			fmt.Println()
+			if !confirm("Create this machine?") {
+				return fmt.Errorf("cancelled")
+			}
 		}
 
 		project, err := client.CreateProject(req)
@@ -317,29 +407,41 @@ Build modes — does my repo need a Dockerfile?
 			return output.JSON(project)
 		}
 
-		fmt.Printf("✓ Project created: %s (ID: %s)\n", project.Name, project.ID)
-		fmt.Printf("  Domain: %s.usectl.com\n", project.Domain)
+		fmt.Printf("✓ Machine created: %s (%s)\n", project.Name, project.ID)
+		fmt.Printf("  Namespace  kdeploy-%s\n", project.Name)
+		fmt.Printf("  Size       %s vCPU · %s GB RAM · %s GB storage\n",
+			trimFloat(createVCPU), trimFloat(ramGB), trimFloat(storageGB))
 
-		// Set custom env vars if --env was provided.
 		if len(createEnvs) > 0 {
 			vars := make(map[string]string)
 			for _, e := range createEnvs {
-				parts := strings.SplitN(e, "=", 2)
-				if len(parts) == 2 {
+				if parts := strings.SplitN(e, "=", 2); len(parts) == 2 {
 					vars[parts[0]] = parts[1]
 				}
 			}
 			if len(vars) > 0 {
 				if err := client.SetEnvs(project.ID, vars); err != nil {
-					fmt.Printf("  ⚠ Warning: failed to set env vars: %v\n", err)
+					fmt.Printf("  ⚠ failed to set env vars: %v\n", err)
 				} else {
-					fmt.Printf("  ✓ Set %d environment variable(s)\n", len(vars))
+					fmt.Printf("  Env        %d variable(s) set\n", len(vars))
 				}
 			}
 		}
 
+		fmt.Printf("\nNext: add a pod\n  usectl machines pods create %s --repo <url> --port <port>\n", project.Name)
 		return nil
 	},
+}
+
+// sizeFlag resolves a --ram / --storage string flag into GB. An unset flag
+// keeps its default without going through the parser, so a malformed default
+// can never fail a command that did not use the flag.
+func sizeFlag(cmd *cobra.Command, name, raw string) (float64, error) {
+	v, err := parseSizeGB(raw)
+	if err != nil {
+		return 0, fmt.Errorf("--%s: %w", name, err)
+	}
+	return v, nil
 }
 
 // Flags for update command
@@ -354,22 +456,25 @@ var (
 )
 
 var projectsUpdateCmd = &cobra.Command{
-	Use:   "update <id>",
+	Use:   "update [machine]",
 	Short: "Update project settings (domain, branch, port, etc.)",
 	Long: `Modify one or more settings of an existing project. Only the flags you
 provide will be updated — omitted fields remain unchanged.
 
 If --port or --domain is changed, the K8s resources (Deployment, Service,
 IngressRoute) are automatically updated in the background.`,
-	Example: `  usectl projects update a8f15889 --port 3000
-  usectl projects update a8f15889 --domain new-domain --branch develop
-  usectl projects update a8f15889 --installation-id 114078944
-  usectl projects update a8f15889 --preview-envs       # Enable PR preview environments
-  usectl projects update a8f15889 --preview-envs=false  # Disable PR preview environments`,
-	Args: cobra.ExactArgs(1),
+	Example: `  usectl machines update a8f15889 --port 3000
+  usectl machines update a8f15889 --domain new-domain --branch develop
+  usectl machines update a8f15889 --installation-id 114078944
+  usectl machines update a8f15889 --preview-envs       # Enable PR preview environments
+  usectl machines update a8f15889 --preview-envs=false  # Disable PR preview environments`,
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 
@@ -411,7 +516,7 @@ IngressRoute) are automatically updated in the background.`,
 }
 
 var projectsDeleteCmd = &cobra.Command{
-	Use:   "delete <id>",
+	Use:   "delete <machine>",
 	Short: "Delete a project and all associated resources (namespace, DB, S3)",
 	Long: `Permanently delete a project and clean up all associated resources:
   - Kubernetes namespace and all resources inside (pods, services, ingress)
@@ -419,79 +524,166 @@ var projectsDeleteCmd = &cobra.Command{
   - S3 bucket, objects, user, and policy (if --s3 was used)
 
 This action is irreversible.`,
-	Example: `  usectl projects delete a8f15889`,
-	Args:    cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := api.NewClient(apiURL)
-		if err != nil {
-			return err
-		}
-		if err := client.DeleteProject(args[0]); err != nil {
-			return err
-		}
-		fmt.Println("✓ Project deleted")
-		return nil
-	},
-}
-
-var projectsDeployCmd = &cobra.Command{
-	Use:   "deploy <id>",
-	Short: "Trigger a new build and deployment from the latest commit",
-	Long: `Trigger a build pipeline for the project. The backend auto-resolves the
-latest commit on the project's branch via the GitHub API, clones the repo,
-builds a container image via Kaniko, pushes it to the private registry,
-and deploys it to Kubernetes.
-
-The build runs asynchronously. Use 'usectl projects logs <id>' or
-'usectl projects build-logs <project-id> <deployment-id>' to monitor progress.`,
-	Example: `  usectl projects deploy a8f15889`,
-	Args:    cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := api.NewClient(apiURL)
-		if err != nil {
-			return err
-		}
-		resp, err := client.DeployProject(args[0])
-		if err != nil {
-			return err
-		}
-
-		if jsonOutput {
-			return output.JSON(resp)
-		}
-
-		fmt.Printf("✓ Deployment triggered (ID: %s, status: %s)\n", resp.Deployment.ID, resp.Deployment.Status)
-		return nil
-	},
-}
-
-var logsLines int
-var logsFollow bool
-
-var projectsLogsCmd = &cobra.Command{
-	Use:   "logs <id>",
-	Short: "View live runtime logs from the running application containers",
-	Long: `Fetch the latest log output from the project's running pods.
-Use --tail to control how many lines to retrieve (default: 100).
-Use -f / --follow to stream logs in real-time (like docker logs -f).`,
-	Example: `  usectl projects logs a8f15889
-  usectl projects logs a8f15889 --tail 500
-  usectl projects logs a8f15889 -f
-  usectl projects logs a8f15889 --follow --tail 50`,
+	Example: `  usectl machines delete my-machine
+  usectl machines delete my-machine --yes    # skip the confirmation`,
+	// Deliberately ExactArgs(1) rather than the optional-machine form the other
+	// commands use: this is irreversible, and a machine left over in
+	// `usectl use` must never be enough to destroy it by typing four words.
+	// The target has to be named.
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
+		machineID, err := resolveMachine(client, args[0])
+		if err != nil {
+			return err
+		}
+		// Resolve the name for the prompt so the confirmation names what will
+		// actually be destroyed, not the abbreviation that was typed.
+		name := args[0]
+		if resp, gErr := client.GetProjectFull(machineID); gErr == nil {
+			name = resp.Project.Name
+		}
+
+		if !assumeYes {
+			if !interactive() {
+				return fmt.Errorf("refusing to delete %q without confirmation — pass --yes to proceed non-interactively", name)
+			}
+			fmt.Printf("This permanently deletes machine %q (%s):\n", name, machineID)
+			fmt.Println("  · the Kubernetes namespace and everything in it")
+			fmt.Println("  · provisioned databases and their data")
+			fmt.Println("  · S3 buckets and their objects")
+			fmt.Println("  This cannot be undone.")
+			if ans := ask("Type the machine name to confirm", ""); ans != name {
+				return fmt.Errorf("cancelled — %q does not match %q", ans, name)
+			}
+		}
+
+		if err := client.DeleteProject(machineID); err != nil {
+			return err
+		}
+		fmt.Printf("✓ Machine %q deleted\n", name)
+		return nil
+	},
+}
+
+var projectsDeployCmd = &cobra.Command{
+	Use:   "deploy [machine] [pod]",
+	Short: "Build and deploy the latest commit",
+	Long: `Trigger a build and deployment.
+
+Naming a pod deploys just that workload. With no pod, every git-sourced pod in
+the machine is deployed, one request each.
+
+That per-pod fan-out is deliberate: repository and branch live on the pod, not
+the machine, so there is no single HEAD for a machine to resolve. Asking the
+server for a whole-machine deploy fails with "commit_hash is required (could
+not auto-resolve HEAD)" on any machine that does not carry a legacy top-level
+repo.
+
+Image-sourced pods are skipped — they have no repo to build from and are
+redeployed by changing their image reference.`,
+	Example: `  usectl machines deploy api          # every git-sourced pod
+  usectl machines deploy api web      # just this pod
+  usectl machines deploy web api      # same — the order does not matter`,
+	Args: cobra.RangeArgs(0, 2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
+		if err != nil {
+			return err
+		}
+
+		apps, err := client.ListProjectApps(machineID)
+		if err != nil {
+			return err
+		}
+
+		targets := make([]api.ProjectApp, 0, len(apps))
+		for _, a := range apps {
+			if podID != "" {
+				if a.ID == podID {
+					targets = append(targets, a)
+				}
+				continue
+			}
+			if a.SourceType == "image" || (a.RepoURL == "" && a.ImageRef != "") {
+				continue // nothing to build
+			}
+			targets = append(targets, a)
+		}
+
+		if len(targets) == 0 {
+			if podID != "" {
+				return fmt.Errorf("pod not found in this machine")
+			}
+			return fmt.Errorf("no git-sourced pods to deploy in this machine")
+		}
+
+		var failures int
+		for _, a := range targets {
+			resp, dErr := client.DeployProject(machineID, a.ID)
+			if dErr != nil {
+				failures++
+				fmt.Printf("  %s %s: %v\n", output.Red("✗"), a.Name, dErr)
+				continue
+			}
+			id := ""
+			if resp != nil {
+				id = resp.Deployment.ID
+			}
+			fmt.Printf("  %s %s %s\n", output.Green("✓"), a.Name, output.Dim(id))
+		}
+		if failures > 0 {
+			return fmt.Errorf("%d of %d pod(s) failed to start deploying", failures, len(targets))
+		}
+		fmt.Printf("\nWatch progress:\n  usectl machines deployments %s\n", firstOrEmpty(args))
+		return nil
+	},
+}
+
+// Flags for logs
+var (
+	logsFollow bool
+	logsLines  int
+)
+
+var projectsLogsCmd = &cobra.Command{
+	Use:   "logs [machine] [pod]",
+	Short: "View live runtime logs from the running application containers",
+	Long: `Fetch the latest log output from the machine's running pods.
+Use --tail to control how many lines to retrieve (default: 100).
+Use -f / --follow to stream logs in real-time (like docker logs -f).`,
+	Example: `  usectl machines logs api
+  usectl machines logs api web            # only this pod
+  usectl machines logs api web -f
+  usectl machines logs api --tail 500`,
+	Args: cobra.RangeArgs(0, 2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		// Naming a pod narrows the stream. Without it a multi-pod machine
+		// interleaves output from unrelated workloads, which is rarely what
+		// someone tailing logs wants.
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
+		if err != nil {
+			return err
+		}
 
 		// Follow mode: stream to stdout.
 		if logsFollow {
-			return client.StreamRuntimeLogs(args[0], logsLines, os.Stdout)
+			return client.StreamRuntimeLogs(machineID, logsLines, podID, os.Stdout)
 		}
 
 		// Normal mode: fetch and print.
-		logs, err := client.GetRuntimeLogs(args[0], logsLines)
+		logs, err := client.GetRuntimeLogs(machineID, logsLines, podID)
 		if err != nil {
 			return err
 		}
@@ -506,15 +698,25 @@ Use -f / --follow to stream logs in real-time (like docker logs -f).`,
 }
 
 var projectsBuildLogsCmd = &cobra.Command{
-	Use:   "build-logs <project-id> <deployment-id>",
+	Use:   "build-logs [machine] <deployment-id>",
 	Short: "View build and deploy logs for a specific deployment",
 	Long: `Retrieve the full build log (clone + Kaniko build) and deploy log for a
-specific deployment. Use 'usectl projects get <id>' to see deployment IDs.`,
-	Example: `  usectl projects build-logs a8f15889 d4e5f6a7`,
-	Args:    cobra.ExactArgs(2),
+specific deployment. Use 'usectl machines get <id>' to see deployment IDs.`,
+	Example: `  usectl machines build-logs a8f15889 d4e5f6a7`,
+	Args:    cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
+			return err
+		}
+		if len(args) < 2 {
+			return fmt.Errorf("a deployment id is required — run 'usectl machines deployments %s'", args[0])
+		}
+		// Accept the shortened id the listings print, not just the full UUID.
+		if args[1], err = resolveDeployment(client, args[0], args[1]); err != nil {
 			return err
 		}
 		logs, err := client.GetDeploymentLogs(args[0], args[1])
@@ -535,67 +737,112 @@ specific deployment. Use 'usectl projects get <id>' to see deployment IDs.`,
 	},
 }
 
-var projectsDeploymentsCmd = &cobra.Command{
-	Use:     "deployments <project-id>",
-	Aliases: []string{"deps"},
-	Short:   "List all deployments for a project",
-	Long: `Returns a table of all deployments for the given project, ordered from
-newest to oldest. Shows deployment ID, status, commit hash, and creation date.
+var (
+	depsStatus  string
+	depsPage    int
+	depsPerPage int
+)
 
-Use the deployment ID with 'usectl projects build-logs' to view build logs,
-or with 'usectl projects rollback' to roll back to a previous deployment.`,
-	Example: `  usectl projects deployments a8f15889
-  usectl projects deployments a8f15889 --json`,
-	Args: cobra.ExactArgs(1),
+var projectsDeploymentsCmd = &cobra.Command{
+	Use:     "deployments [machine] [pod]",
+	Aliases: []string{"deps"},
+	Short:   "List deployment history, newest first",
+	Long: `Deployment history for a machine, or for one pod.
+
+Reads GET /projects/{id}/deployments, which paginates and filters server-side.
+It previously read the deployment list embedded in the machine object instead —
+that field carries only a small recent slice scoped to the legacy top-level
+app, so a machine whose pods each have their own repo showed "No deployments
+found" while the dashboard listed plenty.`,
+	Example: `  usectl machines deployments api
+  usectl machines deployments api web
+  usectl machines deployments api --status failed --per-page 50`,
+	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		resp, err := client.GetProjectFull(args[0])
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
 		if err != nil {
 			return err
 		}
 
-		if jsonOutput {
-			return output.JSON(resp.Deployments)
+		page, err := client.ListDeployments(machineID, depsStatus, podID, depsPage, depsPerPage)
+		if err != nil {
+			return err
 		}
-
-		if len(resp.Deployments) == 0 {
-			fmt.Println("No deployments found for this project.")
+		if jsonOutput {
+			return output.JSON(page)
+		}
+		if page == nil || len(page.Deployments) == 0 {
+			fmt.Println("No deployments found.")
 			return nil
 		}
 
-		rows := make([][]string, len(resp.Deployments))
-		for i, d := range resp.Deployments {
+		// Pod names are resolved once so each row can say which workload it
+		// belongs to — on a multi-pod machine an undifferentiated list of
+		// commits is close to unreadable.
+		podName := map[string]string{}
+		if apps, aErr := client.ListProjectApps(machineID); aErr == nil {
+			for _, a := range apps {
+				podName[a.ID] = a.Name
+			}
+		}
+
+		rows := make([][]string, len(page.Deployments))
+		for i, d := range page.Deployments {
 			commit := d.CommitHash
 			if len(commit) > 7 {
 				commit = commit[:7]
 			}
-			rows[i] = []string{d.ID, d.Status, commit, d.CreatedAt}
+			pod := "—"
+			if d.ProjectAppID != nil {
+				if n, ok := podName[*d.ProjectAppID]; ok {
+					pod = n
+				} else {
+					pod = shortID(*d.ProjectAppID)
+				}
+			}
+			rows[i] = []string{
+				output.Dim(shortID(d.ID)),
+				pod,
+				deployStatusColored(d.Status),
+				commit,
+				d.CreatedAt,
+			}
 		}
-		output.Table([]string{"ID", "STATUS", "COMMIT", "CREATED"}, rows)
-		fmt.Printf("\nTotal: %d deployments\n", len(resp.Deployments))
-		fmt.Println("\nHint: Use 'usectl projects build-logs <project-id> <deployment-id>' to view logs.")
-		fmt.Println("      Use 'usectl projects rollback <project-id> <deployment-id>' to roll back.")
+		output.Table([]string{"ID", "POD", "STATUS", "COMMIT", "CREATED"}, rows)
+		fmt.Printf("\n%s\n", output.Dim(fmt.Sprintf("page %d of %d · %d deployment(s) total",
+			page.Page, page.TotalPages, page.Total)))
 		return nil
 	},
 }
 
 var projectsRollbackCmd = &cobra.Command{
-	Use:   "rollback <project-id> <deployment-id>",
+	Use:   "rollback [machine] <deployment-id>",
 	Short: "Roll back to a previous deployment (redeploy its container image)",
 	Long: `Roll back a project to a previously successful deployment by redeploying
 its container image without rebuilding. This is useful to quickly recover from
 a bad deployment.
 
 The deployment-id should reference an existing deployment. Use
-'usectl projects deployments <project-id>' to see available deployments.`,
-	Example: `  usectl projects rollback a8f15889 d4e5f6a7`,
-	Args:    cobra.ExactArgs(2),
+'usectl machines deployments [machine]' to see available deployments.`,
+	Example: `  usectl machines rollback a8f15889 d4e5f6a7`,
+	Args:    cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
+			return err
+		}
+		if len(args) < 2 {
+			return fmt.Errorf("a deployment id is required — run 'usectl machines deployments %s'", args[0])
+		}
+		// Accept the shortened id the listings print, not just the full UUID.
+		if args[1], err = resolveDeployment(client, args[0], args[1]); err != nil {
 			return err
 		}
 
@@ -633,19 +880,22 @@ The deployment-id should reference an existing deployment. Use
 		}
 
 		fmt.Printf("✓ Rollback triggered. Redeploying image from commit %s (skip build).\n", shortCommit)
-		fmt.Println("  Use 'usectl projects logs <project-id>' to monitor.")
+		fmt.Println("  Use 'usectl machines logs [machine]' to monitor.")
 		return nil
 	},
 }
 
 var projectsStartCmd = &cobra.Command{
-	Use:     "start <id>",
+	Use:     "start [machine]",
 	Short:   "Start a stopped project (scale replicas to 1)",
-	Example: `  usectl projects start a8f15889`,
-	Args:    cobra.ExactArgs(1),
+	Example: `  usectl machines start a8f15889`,
+	Args:    cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		if err := client.StartProject(args[0]); err != nil {
@@ -657,13 +907,16 @@ var projectsStartCmd = &cobra.Command{
 }
 
 var projectsStopCmd = &cobra.Command{
-	Use:     "stop <id>",
+	Use:     "stop [machine]",
 	Short:   "Stop a running project (scale replicas to 0)",
-	Example: `  usectl projects stop a8f15889`,
-	Args:    cobra.ExactArgs(1),
+	Example: `  usectl machines stop a8f15889`,
+	Args:    cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		if err := client.StopProject(args[0]); err != nil {
@@ -675,14 +928,17 @@ var projectsStopCmd = &cobra.Command{
 }
 
 var projectsStatusCmd = &cobra.Command{
-	Use:     "status <id>",
-	Short:   "Check if the project's containers are running or stopped",
-	Long:    `Returns the running status and current replica count of the project's deployment.`,
-	Example: `  usectl projects status a8f15889`,
-	Args:    cobra.ExactArgs(1),
+	Use:     "status [machine]",
+	Short:   "Check if the machine's containers are running or stopped",
+	Long:    `Returns the running status and current replica count of the machine's deployment.`,
+	Example: `  usectl machines status a8f15889`,
+	Args:    cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		status, err := client.GetProjectStatus(args[0])
@@ -700,7 +956,7 @@ var projectsStatusCmd = &cobra.Command{
 }
 
 var projectsStatsCmd = &cobra.Command{
-	Use:   "stats <id>",
+	Use:   "stats [machine]",
 	Short: "View CPU, memory, network, database size, and storage usage",
 	Long: `Returns resource usage metrics for the project, including:
   - Per-pod CPU and memory usage
@@ -708,12 +964,15 @@ var projectsStatsCmd = &cobra.Command{
   - Pod restart count
   - Database size (if provisioned)
   - S3 storage used (if provisioned)`,
-	Example: `  usectl projects stats a8f15889
-  usectl projects stats a8f15889 --json`,
-	Args: cobra.ExactArgs(1),
+	Example: `  usectl machines stats a8f15889
+  usectl machines stats a8f15889 --json`,
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		stats, err := client.GetProjectStats(args[0])
@@ -743,9 +1002,9 @@ var projectsStatsCmd = &cobra.Command{
 }
 
 var projectsPRsCmd = &cobra.Command{
-	Use:     "prs <project-id>",
+	Use:     "prs [machine]",
 	Aliases: []string{"pr", "previews"},
-	Short:   "List active PR preview deployments for a project",
+	Short:   "List active PR preview deployments for a machine",
 	Long: `Returns a table of active pull request preview environments for the given
 project. Each PR preview has its own domain, namespace, and deployment.
 
@@ -753,13 +1012,16 @@ Preview environments are automatically created when a PR is opened or updated,
 and cleaned up when the PR is closed or merged.
 
 Enable preview environments with:
-  usectl projects update <id> --preview-envs`,
-	Example: `  usectl projects prs a8f15889
-  usectl projects prs a8f15889 --json`,
-	Args: cobra.ExactArgs(1),
+  usectl machines update <id> --preview-envs`,
+	Example: `  usectl machines prs a8f15889
+  usectl machines prs a8f15889 --json`,
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		prs, err := client.ListActivePRs(args[0])
@@ -773,7 +1035,7 @@ Enable preview environments with:
 
 		if len(prs) == 0 {
 			fmt.Println("No active PR preview environments.")
-			fmt.Println("\nHint: Enable preview envs with 'usectl projects update <id> --preview-envs'")
+			fmt.Println("\nHint: Enable preview envs with 'usectl machines update <id> --preview-envs'")
 			return nil
 		}
 
@@ -804,18 +1066,21 @@ Enable preview environments with:
 }
 
 var projectsShellCmd = &cobra.Command{
-	Use:   "shell <id>",
+	Use:   "shell [machine]",
 	Short: "Connect to an interactive SPDY shell in the running pod",
 	Long: `Upgrades your connection to an interactive SPDY-proxy WebSocket tunnel,
-granting you direct /bin/sh access into the project's running container securely.`,
-	Example: `  usectl projects shell a8f15889`,
-	Args: cobra.ExactArgs(1),
+granting you direct /bin/sh access into the machine's running container securely.`,
+	Example: `  usectl machines shell a8f15889`,
+	Args:    cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		
+		if args, err = resolveFirstArg(client, args); err != nil {
+			return err
+		}
+
 		fmt.Printf("Connecting to project %s...\n", args[0])
 		err = client.StreamTerminal(args[0], "")
 		if err != nil {
@@ -826,17 +1091,20 @@ granting you direct /bin/sh access into the project's running container securely
 }
 
 var projectsDiagnosticsCmd = &cobra.Command{
-	Use:   "diagnostics <id>",
-	Short: "View K8s crash reports, reasons, and previous logs for a failing pod",
-	Long: `Returns precise Kubernetes pod lifecycle events to debug crash loops or CreateContainerConfigErrors.`,
-	Example: `  usectl projects diagnostics a8f15889`,
-	Args: cobra.ExactArgs(1),
+	Use:     "diagnostics [machine]",
+	Short:   "View K8s crash reports, reasons, and previous logs for a failing pod",
+	Long:    `Returns precise Kubernetes pod lifecycle events to debug crash loops or CreateContainerConfigErrors.`,
+	Example: `  usectl machines diagnostics a8f15889`,
+	Args:    cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		
+		if args, err = resolveFirstArg(client, args); err != nil {
+			return err
+		}
+
 		diag, err := client.GetDiagnostics(args[0])
 		if err != nil {
 			return err
@@ -848,7 +1116,7 @@ var projectsDiagnosticsCmd = &cobra.Command{
 
 		fmt.Printf("Diagnostics for Pod: %s\n", diag.PodName)
 		fmt.Printf("Phase: %s\n", diag.Phase)
-		
+
 		if diag.ContainerStatus != nil {
 			fmt.Printf("\nContainer Status: %s (%s)\n", diag.ContainerStatus.State, diag.ContainerStatus.WaitReason)
 			if diag.ContainerStatus.Message != "" {
@@ -879,21 +1147,19 @@ var projectsDiagnosticsCmd = &cobra.Command{
 
 func init() {
 	// Create flags
-	projectsCreateCmd.Flags().StringVar(&createName, "name", "", "Project name (required)")
-	projectsCreateCmd.Flags().StringVar(&createRepo, "repo", "", "GitHub repository URL (required)")
-	projectsCreateCmd.Flags().StringVar(&createBranch, "branch", "main", "Git branch")
-	projectsCreateCmd.Flags().StringVar(&createDomain, "domain", "", "Subdomain (required)")
-	projectsCreateCmd.Flags().StringVar(&createType, "type", "service", "Project type: static or service")
-	projectsCreateCmd.Flags().IntVar(&createPort, "port", 80, "Container port")
-	projectsCreateCmd.Flags().BoolVar(&createDB, "db", false, "Provision a PostgreSQL database")
-	projectsCreateCmd.Flags().BoolVar(&createS3, "s3", false, "Provision S3 object storage")
+	projectsCreateCmd.Flags().StringVar(&createName, "name", "", "Machine name (or pass it positionally)")
+	projectsCreateCmd.Flags().Float64Var(&createVCPU, "vcpu", 1, "vCPU allocated to the machine")
+	projectsCreateCmd.Flags().StringVar(&createRAM, "ram", "1", "RAM — bare number is GB; suffixes accepted (512mb, 4gb)")
+	projectsCreateCmd.Flags().StringVar(&createStorage, "storage", "1", "Storage — bare number is GB; suffixes accepted (512mb, 20gb)")
+	projectsCreateCmd.Flags().StringVar(&createBilling, "billing", "month", "Billing interval: month or year")
+	projectsCreateCmd.Flags().BoolVar(&createDB, "db", false, "Provision a PostgreSQL addon")
+	projectsCreateCmd.Flags().BoolVar(&createS3, "s3", false, "Provision an S3 object-storage addon")
 	projectsCreateCmd.Flags().StringSliceVar(&createAddons, "addon", nil, "Add addon by type (database, s3, redis, nats). Can be repeated")
-	projectsCreateCmd.Flags().StringVar(&createGHToken, "github-token", "", "GitHub token for private repos")
+	projectsCreateCmd.Flags().StringVar(&createGHToken, "github-token", "", "GitHub token used by pods in this machine for private repos")
 	projectsCreateCmd.Flags().Int64Var(&createInstallID, "installation-id", 0, "GitHub App installation ID (from 'usectl github installations')")
-	projectsCreateCmd.Flags().StringSliceVar(&createEnvs, "env", nil, `Set environment variable (KEY=value). Can be repeated`)
-	projectsCreateCmd.MarkFlagRequired("name")
-	projectsCreateCmd.MarkFlagRequired("repo")
-	projectsCreateCmd.MarkFlagRequired("domain")
+	projectsCreateCmd.Flags().StringSliceVar(&createEnvs, "env", nil, `Machine-wide environment variable (KEY=value). Can be repeated`)
+	projectsCreateCmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Do not prompt; fail instead if a required value is missing")
+	projectsDeleteCmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Skip the delete confirmation")
 
 	// Update flags
 	projectsUpdateCmd.Flags().StringVar(&updateName, "name", "", "New project name")
@@ -915,6 +1181,9 @@ func init() {
 	projectsCmd.AddCommand(projectsUpdateCmd)
 	projectsCmd.AddCommand(projectsDeleteCmd)
 	projectsCmd.AddCommand(projectsDeployCmd)
+	projectsDeploymentsCmd.Flags().StringVar(&depsStatus, "status", "", "Filter by status: live, failed, building, cancelled")
+	projectsDeploymentsCmd.Flags().IntVar(&depsPage, "page", 0, "Page number")
+	projectsDeploymentsCmd.Flags().IntVar(&depsPerPage, "per-page", 0, "Results per page (max 100)")
 	projectsCmd.AddCommand(projectsDeploymentsCmd)
 	projectsCmd.AddCommand(projectsRollbackCmd)
 	projectsCmd.AddCommand(projectsStartCmd)
@@ -927,10 +1196,57 @@ func init() {
 	projectsCmd.AddCommand(projectsStatsCmd)
 	projectsCmd.AddCommand(projectsPRsCmd)
 	// Additional sub-groups
-	projectsCmd.AddCommand(s3Cmd)
+	// s3Cmd is parented in s3.go; registering it here too duplicated it in help.
 	projectsCmd.AddCommand(cronCmd)
 	projectsCmd.AddCommand(envsCmd)
 	projectsCmd.AddCommand(domainsCmd)
 
 	rootCmd.AddCommand(projectsCmd)
+}
+
+// billingSummary renders a machine's billing state compactly for the list
+// table: the price when there is one, the trial/other state otherwise.
+func billingSummary(p api.Project) string {
+	switch p.BillingStatus {
+	case "trialing":
+		return "trial"
+	case "":
+		return "-"
+	}
+	if p.MonthlyPriceCents > 0 {
+		return fmt.Sprintf("$%.0f/%s", float64(p.MonthlyPriceCents)/100, shortInterval(p.BillingInterval))
+	}
+	return p.BillingStatus
+}
+
+func shortInterval(s string) string {
+	if s == "year" {
+		return "yr"
+	}
+	return "mo"
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
+}
+
+// deployStatusColored maps a deployment status to a colour. Only "live" is a
+// healthy resting state; "failed"/"cancelled" are terminal; the rest are in
+// flight.
+func deployStatusColored(s string) string {
+	switch s {
+	case "live":
+		return output.Green(s)
+	case "failed":
+		return output.Red(s)
+	case "cancelled":
+		return output.Yellow(s)
+	case "-", "":
+		return output.Dim("-")
+	default:
+		return output.Yellow(s)
+	}
 }

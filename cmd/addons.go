@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/giorgi/usectl/api"
@@ -15,37 +14,45 @@ var addonsCmd = &cobra.Command{
 	Use:     "addons",
 	Aliases: []string{"addon"},
 	Short:   "Manage machine addons (database, redis, nats, mongodb, s3, ...)",
-	Long: `An addon is a packaged service the platform provisions and wires into your
-project's namespace. Each addon emits a connection Secret that gets injected
-into the machine's pods as env vars (DATABASE_URL, REDIS_URL, etc.).
+	Long: `An addon is a packaged service the platform provisions for a machine —
+Postgres, Redis, NATS, MongoDB, S3, and so on. Each emits a connection Secret
+holding DATABASE_URL, REDIS_URL and friends.
 
-Agent tips:
-  - Addon credentials are injected automatically. Do NOT set DATABASE_URL,
-    REDIS_URL, etc. via 'usectl envs set' — they will be overridden and
-    secrets may leak into the env vault.
-  - 'usectl addons catalog' lists every addon type and the exact env vars
-    it injects. Read this before deciding which addon a project needs.
-  - Addons live on the machine, not on individual apps. Every app pod in
-    the machine sees the same DATABASE_URL by default. Use 'usectl apps
-    addons' to scope an addon to a specific app instead.
-  - 'shareable' lets one machine read-link an addon owned by another of
-    your machines — useful for connecting a worker machine to the main
-    machine's DB without re-provisioning. Unlinking does not deprovision
-    the source.
+An addon must be ATTACHED to a pod before that pod receives those variables.
+Provisioning alone is not enough: a machine can own a database that a given pod
+cannot see, and that asymmetry is the usual reason a pod starts but cannot
+connect to anything.
+
+  usectl machines pods addons <machine> <pod>          what a pod receives
+  usectl machines pods attach-addon <machine> <pod> database
 
 Modes:
-  managed    Shared instance — free, doesn't count against project budget.
-  dedicated  Workload runs inside the machine namespace with its own PVC.
+  managed    Wired to the shared platform instance. Free, no quota cost, and
+             backed up centrally. Not every addon offers anything else.
+  dedicated  Its own workload and PVC inside the machine namespace, drawing on
+             the machine's CPU/RAM budget. Only addons that publish a size
+             ladder support this; the interactive wizard hides the choice for
+             the rest rather than offering one the server will reject.
+
+Notes:
+  - Never set DATABASE_URL, REDIS_URL and the like by hand. They are injected
+    from the addon and would be overwritten.
+  - A second instance of a type needs its own --name, and its keys are then
+    prefixed with it: --name analytics yields ANALYTICS_DATABASE_URL.
+  - Per-addon automated backups apply only to a DEDICATED database; managed
+    databases are backed up centrally.
+  - 'shareable' read-links an addon owned by another of your machines.
+    Unlinking does not deprovision the source.
 
 Subcommands:
-  catalog          List addons available in the catalog
-  list             List addons enabled on a project
-  add              Provision a new addon
-  remove           Remove an addon
-  ui               Toggle the addon's admin UI (pgAdmin, Redis Commander, ...)
-  config           Update an addon's behavioral config (e.g. NATS_WS_*)
-  shareable        List addons from your other projects you can share-link
-  start/stop       Scale a dedicated addon to 0 / restore replicas`,
+  catalog      Addon types available, and the env vars each injects
+  list         This machine's addons, with size, version, backups and UI
+  get          One addon in full: config, credentials, backups, pods
+  add          Provision an addon (interactive when --type is omitted)
+  remove       Deprovision an addon
+  ui           Toggle the addon's admin UI (pgAdmin, Redis Commander, ...)
+  config       Patch behavioural config (e.g. NATS_WS_*)
+  start/stop   Scale a dedicated addon to 0 and back`,
 }
 
 var addonsCatalogCmd = &cobra.Command{
@@ -80,15 +87,19 @@ var addonsCatalogCmd = &cobra.Command{
 }
 
 var addonsListCmd = &cobra.Command{
-	Use:   "list <project-id>",
-	Short: "List addons enabled on a project",
+	Use:   "list <machine>",
+	Short: "List a machine's addons with size, version, backups and UI",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		addons, err := client.ListProjectAddons(args[0])
+		machineID, err := resolveMachine(client, args[0])
+		if err != nil {
+			return err
+		}
+		addons, err := client.ListProjectAddons(machineID)
 		if err != nil {
 			return err
 		}
@@ -96,31 +107,43 @@ var addonsListCmd = &cobra.Command{
 			return output.JSON(addons)
 		}
 		if len(addons) == 0 {
-			fmt.Println("No addons enabled. Use `usectl addons add`.")
+			fmt.Printf("No addons on this machine.\n\nAdd one:\n  usectl machines addons add %s --type database\n", args[0])
 			return nil
 		}
+		// ADDON is "type/name" because a bare name is ambiguous by design —
+		// a machine can hold both a "primary" database and a "primary" bucket.
 		rows := make([][]string, len(addons))
 		for i, a := range addons {
-			rows[i] = []string{a.ID, a.AddonType, a.Name, a.Mode, a.Status, strconv.FormatBool(a.UIEnabled)}
+			rows[i] = []string{
+				a.AddonType + "/" + a.Name,
+				a.Mode,
+				a.Status,
+				addonSizeCol(a),
+				addonVersionCol(a),
+				addonBackupCol(a),
+				addonUICol(a),
+			}
 		}
-		output.Table([]string{"ID", "TYPE", "NAME", "MODE", "STATUS", "UI"}, rows)
+		output.Table([]string{"ADDON", "MODE", "STATUS", "SIZE", "VERSION", "BACKUPS", "UI"}, rows)
+		fmt.Printf("\nDetail:\n  usectl machines addons get %s <addon>\n", args[0])
 		return nil
 	},
 }
 
 var (
-	addonAddType        string
-	addonAddMode        string
-	addonAddName        string
-	addonAddSharedFrom  string
-	addonAddReplicas    int
-	addonAddSize        string
-	addonAddVersion     string
-	addonAddRawConfig   string
+	addonAddType       string
+	addonAddMode       string
+	addonAddName       string
+	addonAddSharedFrom string
+	addonAddReplicas   int
+	addonAddSize       string
+	addonAddVersion    string
+	addonAddRawConfig  string
+	addonAddBackup     string
 )
 
 var addonsAddCmd = &cobra.Command{
-	Use:   "add <project-id>",
+	Use:   "add [machine]",
 	Short: "Provision a new addon (managed by default; --mode dedicated for in-namespace)",
 	Long: `Provision an addon for a machine. Managed mode wires the machine to a
 shared instance (free, no quota cost). Dedicated mode runs the addon
@@ -131,23 +154,51 @@ For dedicated addons you can pick a size preset (small/medium/large/...)
 via --size. For multi-instance support (e.g. two databases for one
 project) pass --name to label the second instance — env var keys get
 prefixed by the upper-cased name (DATABASE_URL → ANALYTICS_DATABASE_URL).`,
-	Example: `  # Managed Postgres (default)
-  usectl addons add proj-id --type database
+	Example: `  # Interactive: pick from the catalogue, then answer the config questions
+  usectl machines addons add api
+
+  # Managed Postgres (default mode)
+  usectl machines addons add api --type database
 
   # Dedicated Redis, large preset
-  usectl addons add proj-id --type redis --mode dedicated --size large
+  usectl machines addons add api --type redis --mode dedicated --size large
 
-  # Second Postgres instance, named "analytics"
-  usectl addons add proj-id --type database --name analytics
+  # Second Postgres instance named "analytics" (keys become ANALYTICS_DATABASE_URL)
+  usectl machines addons add api --type database --name analytics
 
-  # Pass arbitrary dedicated config
-  usectl addons add proj-id --type mongodb --mode dedicated \
+  # Dedicated Postgres with nightly backups
+  usectl machines addons add api --type database --mode dedicated \
+    --backup-schedule "0 3 * * *"
+
+  # Raw dedicated config
+  usectl machines addons add api --type mongodb --mode dedicated \
     --config '{"size":{"name":"medium","cpu_millis":500,"memory_mib":512,"storage_gib":10}}'`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
+		}
+		// Previously the raw argument went straight to the API, so a machine
+		// NAME produced "API error 400: invalid project id".
+		ref, src, err := machineRef(firstOrEmpty(args))
+		if err != nil {
+			return err
+		}
+		echoMachineSource(ref, src)
+		machineID, err := resolveMachine(client, ref)
+		if err != nil {
+			return err
+		}
+
+		if interactive() && !cmd.Flags().Changed("type") {
+			if err := addonAddWizard(client, machineID); err != nil {
+				return err
+			}
+		}
+		if addonAddType == "" {
+			return requireInteractive([]string{"type"},
+				"usectl machines addons add <machine> --type <database|redis|nats|...> [--mode dedicated]")
 		}
 
 		req := api.AddProjectAddonRequest{
@@ -168,6 +219,11 @@ prefixed by the upper-cased name (DATABASE_URL → ANALYTICS_DATABASE_URL).`,
 		if addonAddVersion != "" {
 			dedicated["version"] = addonAddVersion
 		}
+		if addonAddBackup != "" {
+			// Per-addon backup schedule (dedicated database only; the server
+			// rejects it elsewhere).
+			dedicated["backup_schedule"] = addonAddBackup
+		}
 		if addonAddRawConfig != "" {
 			var raw map[string]interface{}
 			if err := json.Unmarshal([]byte(addonAddRawConfig), &raw); err != nil {
@@ -182,7 +238,7 @@ prefixed by the upper-cased name (DATABASE_URL → ANALYTICS_DATABASE_URL).`,
 			req.DedicatedConfig = b
 		}
 
-		addon, err := client.AddProjectAddon(args[0], req)
+		addon, err := client.AddProjectAddon(machineID, req)
 		if err != nil {
 			return err
 		}
@@ -198,15 +254,20 @@ prefixed by the upper-cased name (DATABASE_URL → ANALYTICS_DATABASE_URL).`,
 }
 
 var addonsRemoveCmd = &cobra.Command{
-	Use:   "remove <project-id> <type-or-id>",
-	Aliases: []string{"rm"},
-	Short: "Remove an addon (by type for the primary instance, or by UUID for any instance)",
-	Args:  cobra.ExactArgs(2),
+	Use:     "remove [machine] <type-or-id>",
+	Aliases: []string{"rm", "delete", "del"},
+	Short:   "Remove an addon (by type for the primary instance, or by UUID for any instance)",
+	Args:    cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
+		machineID, addonID, rest := "", "", []string(nil)
+		if machineID, addonID, rest, err = resolveMachineAndAddon(client, args); err != nil {
+			return err
+		}
+		args = append([]string{machineID, addonID}, rest...)
 		// Heuristic: if it looks like a UUID, hit by-id. Otherwise treat as type.
 		ident := args[1]
 		var rerr error
@@ -229,9 +290,9 @@ var (
 )
 
 var addonsUICmd = &cobra.Command{
-	Use:   "ui <project-id> <type-or-id>",
+	Use:   "ui [machine] <type-or-id>",
 	Short: "Enable or disable the addon's admin UI (pgAdmin, Redis Commander, ...)",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if addonUIEnable == addonUIDisable {
 			return fmt.Errorf("pass exactly one of --enable / --disable")
@@ -241,6 +302,11 @@ var addonsUICmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		machineID, addonID, rest := "", "", []string(nil)
+		if machineID, addonID, rest, err = resolveMachineAndAddon(client, args); err != nil {
+			return err
+		}
+		args = append([]string{machineID, addonID}, rest...)
 		ident := args[1]
 		var rerr error
 		if looksLikeUUID(ident) {
@@ -261,19 +327,32 @@ var addonsUICmd = &cobra.Command{
 }
 
 var addonsConfigCmd = &cobra.Command{
-	Use:   "config <project-id> <addon-id> <json>",
+	Use:   "config [machine] <addon-id> <json>",
 	Short: "Patch an addon's behavioral config (merged into config JSONB)",
 	Long: `Sends a JSON object that is merged into the addon row's config column. Used
 for behavioral flags that don't fit other knobs — e.g. NATS_WS_ENABLED.
 
 The merge happens server-side and the addon Provision re-runs so the
 cluster reconciles to the new config.`,
-	Example: `  usectl addons config proj-id 4f1c... '{"NATS_WS_ENABLED":"true"}'`,
-	Args: cobra.ExactArgs(3),
+	Example: `  usectl machines addons config api nats '{"NATS_WS_ENABLED":"true"}'`,
+	Args:    cobra.RangeArgs(2, 3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
+		}
+		machineID, addonID, rest := "", "", []string(nil)
+		if machineID, addonID, rest, err = resolveMachineAndAddon(client, args); err != nil {
+			return err
+		}
+		args = append([]string{machineID, addonID}, rest...)
+		// The JSON body is the one argument that cannot be inferred, so it is
+		// checked explicitly rather than indexed — the machine and addon may
+		// each have come from context, leaving fewer positionals than the
+		// pre-resolution arity suggested.
+		if len(rest) == 0 {
+			return fmt.Errorf("a JSON object is required, e.g. usectl machines addons config %s %s '{\"KEY\":\"value\"}'",
+				machineID, addonID)
 		}
 		var raw map[string]interface{}
 		if err := json.Unmarshal([]byte(args[2]), &raw); err != nil {
@@ -288,12 +367,15 @@ cluster reconciles to the new config.`,
 }
 
 var addonsShareableCmd = &cobra.Command{
-	Use:   "shareable <project-id>",
+	Use:   "shareable [machine]",
 	Short: "List addons from your other projects you can share-link to this one",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		addons, err := client.ListShareableAddons(args[0])
@@ -317,14 +399,19 @@ var addonsShareableCmd = &cobra.Command{
 }
 
 var addonsStartCmd = &cobra.Command{
-	Use:   "start <project-id> <addon-id>",
+	Use:   "start [machine] <addon-id>",
 	Short: "Restore a dedicated addon's replicas (no-op for managed)",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
+		machineID, addonID, rest := "", "", []string(nil)
+		if machineID, addonID, rest, err = resolveMachineAndAddon(client, args); err != nil {
+			return err
+		}
+		args = append([]string{machineID, addonID}, rest...)
 		if err := client.StartProjectAddon(args[0], args[1]); err != nil {
 			return err
 		}
@@ -334,14 +421,19 @@ var addonsStartCmd = &cobra.Command{
 }
 
 var addonsStopCmd = &cobra.Command{
-	Use:   "stop <project-id> <addon-id>",
+	Use:   "stop [machine] <addon-id>",
 	Short: "Scale a dedicated addon to 0 (no-op for managed)",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
+		machineID, addonID, rest := "", "", []string(nil)
+		if machineID, addonID, rest, err = resolveMachineAndAddon(client, args); err != nil {
+			return err
+		}
+		args = append([]string{machineID, addonID}, rest...)
 		if err := client.StopProjectAddon(args[0], args[1]); err != nil {
 			return err
 		}
@@ -371,15 +463,20 @@ func looksLikeUUID(s string) bool {
 }
 
 func init() {
-	addonsAddCmd.Flags().StringVar(&addonAddType, "type", "", "Addon type: database, redis, nats, mongodb, s3, ... (required)")
+	addonsAddCmd.Flags().StringVar(&addonAddType, "type", "", "Addon type: database, redis, nats, mongodb, s3, ... (prompted for if omitted on a terminal)")
 	addonsAddCmd.Flags().StringVar(&addonAddMode, "mode", "managed", "Mode: managed | dedicated")
 	addonsAddCmd.Flags().StringVar(&addonAddName, "name", "", "Instance name (e.g. 'analytics' for a 2nd database). Empty = primary.")
 	addonsAddCmd.Flags().StringVar(&addonAddSharedFrom, "shared-from", "", "Source addon UUID to share from (managed mode only)")
 	addonsAddCmd.Flags().IntVar(&addonAddReplicas, "replicas", 1, "Replica count (dedicated mode)")
-	addonsAddCmd.Flags().StringVar(&addonAddSize, "size", "", "Size preset (dedicated mode): small | medium | large | ...")
+	addonsAddCmd.Flags().StringVar(&addonAddSize, "size", "", "Size preset name for dedicated mode; run the interactive wizard to see the ladder this addon publishes")
 	addonsAddCmd.Flags().StringVar(&addonAddVersion, "version", "", "Addon version override (dedicated mode)")
 	addonsAddCmd.Flags().StringVar(&addonAddRawConfig, "config", "", "Raw JSON merged into dedicated_config")
-	addonsAddCmd.MarkFlagRequired("type")
+	addonsAddCmd.Flags().StringVar(&addonAddBackup, "backup-schedule", "", "Automated backup cron, 5 fields (dedicated database only)")
+	addonsAddCmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Do not prompt; fail instead if a required value is missing")
+	// --type is NOT MarkFlagRequired: cobra enforces that before RunE, which
+	// would block the interactive catalogue picker. The requirement is checked
+	// inside RunE instead, where non-interactive callers still get a clear
+	// missing-value error.
 
 	addonsUICmd.Flags().BoolVar(&addonUIEnable, "enable", false, "Enable the addon's admin UI")
 	addonsUICmd.Flags().BoolVar(&addonUIDisable, "disable", false, "Disable the addon's admin UI")

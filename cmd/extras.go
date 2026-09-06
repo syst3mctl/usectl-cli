@@ -42,13 +42,13 @@ new-app modal to preselect Dockerfile defaults.`,
 // ---- Project billing ----
 
 var billingProjectCmd = &cobra.Command{
-	Use:   "project-billing",
+	Use:     "project-billing",
 	Aliases: []string{"pbilling"},
-	Short: "View per-machine billing details and open the machine's billing portal",
+	Short:   "View per-machine billing details and open the machine's billing portal",
 }
 
 var billingProjectGetCmd = &cobra.Command{
-	Use:   "get <project-id>",
+	Use:   "get [machine]",
 	Short: "Show billing status, plan, and resource allocation for a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -81,7 +81,7 @@ var (
 )
 
 var billingProjectPortalCmd = &cobra.Command{
-	Use:   "portal <project-id>",
+	Use:   "portal [machine]",
 	Short: "Open the Stripe billing portal for a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -132,7 +132,7 @@ var priceCmd = &cobra.Command{
 // ---- Project domains list (vs the user's domain inventory) ----
 
 var projectDomainsListCmd = &cobra.Command{
-	Use:   "project-domains <project-id>",
+	Use:   "project-domains [machine]",
 	Short: "List all domains attached to a single machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -153,9 +153,9 @@ var projectDomainsListCmd = &cobra.Command{
 		}
 		rows := make([][]string, len(domains))
 		for i, d := range domains {
-			rows[i] = []string{d.ID, d.Domain, d.CreatedAt}
+			rows[i] = []string{d}
 		}
-		output.Table([]string{"ID", "DOMAIN", "CREATED"}, rows)
+		output.Table([]string{"DOMAIN"}, rows)
 		return nil
 	},
 }
@@ -172,7 +172,7 @@ var (
 )
 
 var cronHistoryCmd = &cobra.Command{
-	Use:   "history <project-id>",
+	Use:   "history [machine]",
 	Short: "View past cron job runs (status, duration, logs)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -220,7 +220,7 @@ var cronHistoryCmd = &cobra.Command{
 // ---- Active PRs delete ----
 
 var prsDeleteCmd = &cobra.Command{
-	Use:   "delete <project-id> <pr-number>",
+	Use:   "delete [machine] <pr-number>",
 	Short: "Tear down a PR preview environment",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -243,7 +243,7 @@ var prsDeleteCmd = &cobra.Command{
 // ---- Deployment cancel ----
 
 var cancelDeploymentCmd = &cobra.Command{
-	Use:   "cancel <project-id> <deployment-id>",
+	Use:   "cancel [machine] <deployment-id>",
 	Short: "Cancel a running deployment (kills the build job)",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -288,7 +288,7 @@ var trialStatusCmd = &cobra.Command{
 // ---- Storage usage ----
 
 var storageUsageCmd = &cobra.Command{
-	Use:   "storage <project-id>",
+	Use:   "storage [machine]",
 	Short: "Show S3 storage usage for a machine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"strconv"
 
@@ -16,31 +15,50 @@ import (
 // kubectl-shaped affordance layered on top of stats, runtime-logs,
 // diagnostics, and the terminal session.
 
-var podsCmd = &cobra.Command{
-	Use:     "pods <machine-id>",
-	Aliases: []string{"pod"},
-	Short:   "List and manage K8s pods running inside a machine",
-	Long: `Pod-level operations for a machine.
+var podsWide bool
 
-When run without a subcommand, lists pods (same data as 'machines stats').
+var podsCmd = &cobra.Command{
+	Use:     "pods [machine]",
+	Aliases: []string{"pod"},
+	Short:   "Show every pod in a machine — config, limits and where each one runs",
+	Long: `One view of everything running in a machine.
+
+For each pod it shows the declared configuration — git source and branch,
+visibility, domain, primary and extra ports, CPU / memory / storage limits and
+the rollout strategy — followed by the actual running instances with the node
+each one landed on.
+
+Dedicated addon pods (Postgres, Redis, NATS, ...) are listed too, under
+ADDONS, joined to the addon that owns them. Anything left over — cron jobs,
+database UIs — appears under OTHER PODS rather than being hidden.
+
+This replaces the old split where 'machines pods' showed CPU/memory stats and
+'kpods' showed the Kubernetes view; neither showed the pod's configuration.
 
 Subcommands:
-  list         List pods with CPU / memory / restart counts
-  logs         Tail logs (optionally scoped to one app via --app)
-  shell        Open an interactive shell into a pod
-  diagnostics  K8s lifecycle events + previous-crash logs for the failing pod
-  restart      Rolling-restart every app in the machine`,
-	Example: `  usectl machines pods <machine-id>                # default = list
-  usectl machines pods logs <machine-id> -f
-  usectl machines pods shell <machine-id> --pod my-app-7c9d4b8f6-x2k9p
-  usectl machines pods restart <machine-id>`,
+  stats        CPU / memory / network per pod
+  logs         Tail logs (optionally scoped with --app)
+  shell        Interactive shell into a pod
+  diagnostics  Crash reasons and previous-container logs
+  restart      Rolling-restart every pod in the machine`,
+	Example: `  usectl machines pods aeeb7dc4-596b-408e-b7bc-82330c138e0e
+  usectl machines pods my-machine --wide
+  usectl machines pods my-machine --json`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// No subcommand → fall through to list.
-		if len(args) != 1 {
-			return cmd.Help()
+		// No argument is not an error when a machine context is set — that is
+		// the whole point of `usectl use`. Fall through to help only when
+		// there is no context either.
+		machine := ""
+		if len(args) == 1 {
+			machine = args[0]
 		}
-		return runPodsList(args[0])
+		if machine == "" {
+			if _, _, err := machineRef(""); err != nil {
+				return cmd.Help()
+			}
+		}
+		return runPodsView(machine, podsWide)
 	},
 }
 
@@ -69,10 +87,22 @@ func runPodsList(machineID string) error {
 }
 
 var podsListCmd = &cobra.Command{
-	Use:     "list <machine-id>",
+	Use:     "list [machine]",
 	Aliases: []string{"ls"},
-	Short:   "List pods running inside a machine",
-	Args:    cobra.ExactArgs(1),
+	Short:   "Show every pod in a machine — config, limits and where each one runs",
+	Args:    cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runPodsView(firstOrEmpty(args), podsWide)
+	},
+}
+
+// podsStatsCmd keeps the pre-existing CPU/memory/network table, which the
+// merged view above deliberately omits: those are sampled metrics, not
+// configuration, and mixing them in made the block unreadable.
+var podsStatsCmd = &cobra.Command{
+	Use:   "stats <machine>",
+	Short: "CPU / memory / network per running pod",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runPodsList(args[0])
 	},
@@ -85,107 +115,46 @@ var (
 )
 
 var podsLogsCmd = &cobra.Command{
-	Use:   "logs <machine-id>",
-	Short: "Tail logs from the machine's pods (optionally scoped to one app)",
-	Long: `Same data source as 'machines logs', surfaced under the pods group for
-discoverability. Pass --app <app-uuid> to narrow to a single multi-app
-pod; otherwise the backend picks the first ready pod in the namespace.`,
-	Args: cobra.ExactArgs(1),
+	Use:   "logs [machine] [pod]",
+	Short: "Tail a pod's logs",
+	Long: `Same data source as 'machines logs'. Naming a pod narrows the stream to that
+workload; without one the backend picks the first ready pod in the namespace,
+which on a multi-pod machine is rarely the one you meant.
+
+--follow now works together with a pod filter. It previously did not: the
+client hardcoded the request path with no room for app_id, so the app-scoped
+case silently degraded to a one-off snapshot.`,
+	Example: `  usectl machines pods logs api web
+  usectl machines pods logs api web -f
+  usectl machines pods logs api --tail 500`,
+	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		// Build path manually so we can pass the optional app_id filter
-		// (the existing GetRuntimeLogs helper doesn't take it). The
-		// backend accepts ?app_id=<uuid> on /runtime-logs.
-		query := url.Values{}
-		if podsLogsTail > 0 {
-			query.Set("lines", strconv.Itoa(podsLogsTail))
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
+		if err != nil {
+			return err
 		}
-		if podsLogsAppID != "" {
-			query.Set("app_id", podsLogsAppID)
+		// --app is kept as an escape hatch for a raw app UUID.
+		if podID == "" && podsLogsAppID != "" {
+			podID = podsLogsAppID
 		}
+
 		if podsLogsFollow {
-			query.Set("follow", "true")
-			path := fmt.Sprintf("/api/projects/%s/runtime-logs", args[0])
-			if encoded := query.Encode(); encoded != "" {
-				path += "?" + encoded
-			}
-			return streamRawLogs(client, path)
+			return client.StreamRuntimeLogs(machineID, podsLogsTail, podID, os.Stdout)
 		}
-		var resp api.LogsResponse
-		path := fmt.Sprintf("/api/projects/%s/runtime-logs", args[0])
-		if encoded := query.Encode(); encoded != "" {
-			path += "?" + encoded
-		}
-		if err := client.Get(path, &resp); err != nil {
+		logs, err := client.GetRuntimeLogs(machineID, podsLogsTail, podID)
+		if err != nil {
 			return err
 		}
 		if jsonOutput {
-			return output.JSON(resp)
+			return output.JSON(logs)
 		}
-		fmt.Print(resp.Logs)
+		fmt.Print(logs.Logs)
 		return nil
 	},
-}
-
-// streamRawLogs is the same shape as Client.StreamRuntimeLogs but accepts a
-// pre-built path so we can pass arbitrary query params.
-func streamRawLogs(client *api.Client, path string) error {
-	// Fall back to the helper when no app filter is set — it handles the
-	// HTTP boilerplate and stdout copying. For the app-scoped case we
-	// build the request inline since StreamRuntimeLogs hardcodes the path.
-	// Both paths share the same backend so the filter just needs the right
-	// URL.
-	tail := 0
-	appFilter := ""
-	if u, err := url.Parse(path); err == nil {
-		if v := u.Query().Get("lines"); v != "" {
-			tail, _ = strconv.Atoi(v)
-		}
-		appFilter = u.Query().Get("app_id")
-	}
-	if appFilter == "" {
-		// Pull machine ID out of the path: /api/projects/<id>/runtime-logs.
-		// The helper takes care of follow-mode framing.
-		var id string
-		if u, err := url.Parse(path); err == nil {
-			parts := splitPath(u.Path)
-			if len(parts) >= 3 {
-				id = parts[2]
-			}
-		}
-		if id != "" {
-			return client.StreamRuntimeLogs(id, tail, os.Stdout)
-		}
-	}
-	// App-scoped follow: copy directly via doRaw-ish flow. The simplest
-	// reuse without exposing private client methods is to drop --follow
-	// when --app is set; users get a snapshot. The polling cadence is
-	// usually fine for debugging worker pods.
-	var resp api.LogsResponse
-	if err := client.Get(path, &resp); err != nil {
-		return err
-	}
-	fmt.Print(resp.Logs)
-	fmt.Fprintln(os.Stderr, "\n(snapshot — --follow with --app is not yet supported; rerun without --follow or omit --app)")
-	return nil
-}
-
-func splitPath(p string) []string {
-	out := []string{}
-	cur := ""
-	for _, r := range p {
-		if r == '/' {
-			out = append(out, cur)
-			cur = ""
-			continue
-		}
-		cur += string(r)
-	}
-	out = append(out, cur)
-	return out
 }
 
 var (
@@ -334,7 +303,12 @@ func init() {
 	podsShellCmd.Flags().StringVar(&podsShellPodName, "pod", "", "Specific pod name (default: first ready pod)")
 	podsShellCmd.Flags().StringVar(&podsShellAppID, "app", "", "Pick the first running pod of this app id")
 
-	podsCmd.AddCommand(podsListCmd, podsLogsCmd, podsShellCmd, podsDiagnosticsCmd, podsRestartCmd)
+	podsCmd.Flags().BoolVar(&podsWide, "wide", false, "Show additional columns (entrypoint command)")
+	podsListCmd.Flags().BoolVar(&podsWide, "wide", false, "Show additional columns (entrypoint command)")
+	podsCmd.AddCommand(podsListCmd, podsCreateCmd, podsStatsCmd, podsLogsCmd, podsShellCmd,
+		podsDiagnosticsCmd, podsRestartCmd,
+		podsAddonsCmd, podsAttachAddonCmd, podsDetachAddonCmd,
+		podsSetCmd, podsOpenPortCmd, podsClosePortCmd, podsEnvCmd, podsDeleteCmd)
 	// Attach under the renamed `machines` (a.k.a. `projects`) command.
 	projectsCmd.AddCommand(podsCmd)
 }

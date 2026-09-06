@@ -36,7 +36,7 @@ something landed on, or delete one pod without restarting the whole machine.`,
 }
 
 var kpodsListCmd = &cobra.Command{
-	Use:   "list <machine-id>",
+	Use:   "list [machine]",
 	Short: "List every pod in the machine's namespaces",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -80,7 +80,7 @@ var kpodsListCmd = &cobra.Command{
 }
 
 var kpodsDeleteCmd = &cobra.Command{
-	Use:     "delete <machine-id> <pod-name>",
+	Use:     "delete [machine] <pod-name>",
 	Aliases: []string{"restart"},
 	Short:   "Delete one pod so its controller recreates it",
 	Long: `Deletes a single pod. The Deployment or StatefulSet that owns it creates a
@@ -123,7 +123,7 @@ var registryCmd = &cobra.Command{
 }
 
 var registryUsageCmd = &cobra.Command{
-	Use:   "usage <machine-id>",
+	Use:   "usage [machine]",
 	Short: "Show registry usage against the machine's allowance",
 	Long: `How much of the machine's image allowance is used, and by which images.
 
@@ -175,7 +175,7 @@ cannot be renamed. Delete it, recreate it, and reassign its members.`,
 }
 
 var groupsListCmd = &cobra.Command{
-	Use:   "list <machine-id>",
+	Use:   "list [machine]",
 	Short: "List a machine's groups",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -208,7 +208,7 @@ var groupsListCmd = &cobra.Command{
 }
 
 var groupsCreateCmd = &cobra.Command{
-	Use:   "create <machine-id> <name>",
+	Use:   "create [machine] <name>",
 	Short: "Create a group",
 	Long: `Creates a group and its namespace.
 
@@ -237,7 +237,7 @@ be DNS-safe.`,
 }
 
 var groupsDeleteCmd = &cobra.Command{
-	Use:   "delete <machine-id> <group-id>",
+	Use:   "delete [machine] <group-id>",
 	Short: "Delete a group",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {

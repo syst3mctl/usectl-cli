@@ -147,8 +147,8 @@ Available plans:
 }
 
 var billingPortalCmd = &cobra.Command{
-	Use:   "portal",
-	Short: "Open Stripe billing portal to manage payment methods (opens browser)",
+	Use:     "portal",
+	Short:   "Open Stripe billing portal to manage payment methods (opens browser)",
 	Example: `  usectl billing portal`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)

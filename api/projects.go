@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -30,6 +31,18 @@ type Project struct {
 	S3Bucket          *string `json:"s3_bucket,omitempty"`
 	CreatedAt         string  `json:"created_at"`
 	UpdatedAt         string  `json:"updated_at"`
+	// Machine-level sizing and billing. RepoURL/Branch/Domain/Port above are
+	// legacy single-app fields kept for older machines; new machines carry
+	// those per pod instead.
+	VCPU              float64 `json:"vcpu"`
+	RAMGB             float64 `json:"ram_gb"`
+	StorageGB         float64 `json:"storage_gb"`
+	BillingStatus     string  `json:"billing_status"`
+	BillingInterval   string  `json:"billing_interval"`
+	MonthlyPriceCents int     `json:"monthly_price_cents"`
+	TrialEndsAt       *string `json:"trial_ends_at,omitempty"`
+	BackupSchedule    *string `json:"backup_schedule,omitempty"`
+	InstallationID    *int64  `json:"installation_id,omitempty"`
 }
 
 type CreateProjectRequest struct {
@@ -44,6 +57,15 @@ type CreateProjectRequest struct {
 	GithubToken    string   `json:"github_token,omitempty"`
 	InstallationID *int64   `json:"installation_id,omitempty"`
 	Addons         []string `json:"addons,omitempty"`
+	// Resource sizing. A machine is a quota wallet: vCPU, RAM and storage are
+	// the machine's, while repo/branch/domain/port belong to the pods inside
+	// it. The API defaults these to 1/1/1 monthly when omitted, which is why
+	// the CLI could create machines without them before these fields existed —
+	// it just silently got the smallest possible machine.
+	VCPU            float64 `json:"vcpu,omitempty"`
+	RAMGB           float64 `json:"ram_gb,omitempty"`
+	StorageGB       float64 `json:"storage_gb,omitempty"`
+	BillingInterval string  `json:"billing_interval,omitempty"` // "month" | "year"
 }
 
 type UpdateProjectRequest struct {
@@ -198,9 +220,21 @@ func (c *Client) DeleteProject(id string) error {
 	return c.Delete(fmt.Sprintf("/api/projects/%s", id), nil)
 }
 
-func (c *Client) DeployProject(id string) (*DeployResponse, error) {
+// DeployProject triggers a build+deploy. appID targets one pod; empty asks the
+// server to deploy the machine as a whole.
+//
+// A whole-machine deploy only works when the machine itself carries a repo —
+// the legacy single-app shape. On a machine whose repos live per pod (every
+// machine created since project_apps), the server has nothing to resolve HEAD
+// from and fails with "commit_hash is required (could not auto-resolve HEAD)",
+// which is why the CLI deploys pod by pod instead.
+func (c *Client) DeployProject(id, appID string) (*DeployResponse, error) {
 	var resp DeployResponse
-	err := c.Post(fmt.Sprintf("/api/projects/%s/deploy", id), nil, &resp)
+	var body interface{}
+	if appID != "" {
+		body = map[string]string{"app_id": appID}
+	}
+	err := c.Post(fmt.Sprintf("/api/projects/%s/deploy", id), body, &resp)
 	return &resp, err
 }
 
@@ -224,22 +258,36 @@ func (c *Client) GetProjectStats(id string) (*ProjectStats, error) {
 	return &stats, err
 }
 
-func (c *Client) GetRuntimeLogs(id string, lines int) (*LogsResponse, error) {
+// GetRuntimeLogs fetches recent logs. appID narrows to one pod; empty means
+// every pod in the machine, which on a multi-pod machine interleaves output
+// from unrelated workloads.
+func (c *Client) GetRuntimeLogs(id string, lines int, appID string) (*LogsResponse, error) {
 	var logs LogsResponse
-	path := fmt.Sprintf("/api/projects/%s/runtime-logs", id)
+	q := url.Values{}
 	if lines > 0 {
-		path = fmt.Sprintf("%s?lines=%d", path, lines)
+		q.Set("lines", strconv.Itoa(lines))
+	}
+	if appID != "" {
+		q.Set("app_id", appID)
+	}
+	path := fmt.Sprintf("/api/projects/%s/runtime-logs", id)
+	if len(q) > 0 {
+		path += "?" + q.Encode()
 	}
 	err := c.Get(path, &logs)
 	return &logs, err
 }
 
 // StreamRuntimeLogs follows logs in real-time (like docker logs -f).
-func (c *Client) StreamRuntimeLogs(id string, lines int, writer io.Writer) error {
-	path := fmt.Sprintf("/api/projects/%s/runtime-logs?follow=true", id)
+func (c *Client) StreamRuntimeLogs(id string, lines int, appID string, writer io.Writer) error {
+	q := url.Values{"follow": {"true"}}
 	if lines > 0 {
-		path = fmt.Sprintf("%s&lines=%d", path, lines)
+		q.Set("lines", strconv.Itoa(lines))
 	}
+	if appID != "" {
+		q.Set("app_id", appID)
+	}
+	path := fmt.Sprintf("/api/projects/%s/runtime-logs?%s", id, q.Encode())
 
 	// Refresh before opening the stream rather than after a 401: a follow
 	// stream can stay open for hours, and reconnecting mid-tail would drop
