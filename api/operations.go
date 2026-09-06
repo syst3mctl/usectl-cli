@@ -67,21 +67,29 @@ func (c *Client) RollbackToDeployment(projectID, appID, deploymentID, reason str
 
 // NamespacePod is one Kubernetes pod inside a machine.
 type NamespacePod struct {
-	Name        string            `json:"name"`
-	Phase       string            `json:"phase"`
-	Terminating bool              `json:"terminating"`
-	Reason      string            `json:"reason,omitempty"`
-	Message     string            `json:"message,omitempty"`
-	Ready       int               `json:"ready"`
-	Total       int               `json:"total"`
-	Restarts    int32             `json:"restarts"`
-	CreatedAt   time.Time         `json:"created_at"`
-	NodeName    string            `json:"node_name,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	OwnerKind   string            `json:"owner_kind,omitempty"`
-	OwnerName   string            `json:"owner_name,omitempty"`
-	Namespace   string            `json:"namespace,omitempty"`
-	GroupName   string            `json:"group_name"`
+	Name        string `json:"name"`
+	Phase       string `json:"phase"`
+	Terminating bool   `json:"terminating"`
+	Reason      string `json:"reason,omitempty"`
+	Message     string `json:"message,omitempty"`
+	Ready       int    `json:"ready"`
+	Total       int    `json:"total"`
+	Restarts    int32  `json:"restarts"`
+	// Why the container died last time. Distinct from Reason, which is the
+	// CURRENT state: a container that was OOMKilled and restarted reports
+	// Running with an empty Reason, so this is the only field that shows an
+	// OOM kill after the fact. Empty against an API server older than the
+	// change that added it — treat absence as "unknown", not "healthy".
+	LastTerminationReason string            `json:"last_termination_reason,omitempty"`
+	LastTerminationCode   int32             `json:"last_termination_code,omitempty"`
+	LastTerminatedAt      *time.Time        `json:"last_terminated_at,omitempty"`
+	CreatedAt             time.Time         `json:"created_at"`
+	NodeName              string            `json:"node_name,omitempty"`
+	Labels                map[string]string `json:"labels,omitempty"`
+	OwnerKind             string            `json:"owner_kind,omitempty"`
+	OwnerName             string            `json:"owner_name,omitempty"`
+	Namespace             string            `json:"namespace,omitempty"`
+	GroupName             string            `json:"group_name"`
 }
 
 // ListNamespacePods returns every pod across all namespaces the machine owns,

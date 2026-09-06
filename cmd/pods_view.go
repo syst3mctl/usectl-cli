@@ -88,6 +88,18 @@ func fetchPodsView(client *api.Client, machine string) (*podsView, error) {
 	return v, nil
 }
 
+// hasPod reports whether the machine declares a pod by that name. Used by
+// `doctor --pod` to fail loudly on a typo rather than silently reporting
+// zero problems for a pod that does not exist.
+func (v *podsView) hasPod(name string) bool {
+	for _, a := range v.apps {
+		if a.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // instancesFor returns the runtime pods carrying label app=<name>.
 func (v *podsView) instancesFor(name string) []api.NamespacePod {
 	var out []api.NamespacePod
@@ -407,12 +419,13 @@ func limitsLine(a api.ProjectApp) string {
 // cannot connect to anything.
 func addonsLine(addons []api.ProjectAddon) string {
 	if len(addons) == 0 {
-		// NOT the same as "receives nothing": a pod with no attachment rows
-		// inherits every addon in the machine (deployer.perAppAddonSecrets
-		// falls back to the project-wide list). Saying "none attached" alone
-		// reads as "no addon variables reach this pod", which is the opposite
-		// of what happens.
-		return output.Yellow("none pinned") + output.Dim(" — inherits every addon in the machine")
+		// This used to claim the pod "inherits every addon in the machine",
+		// citing a project-wide fallback in the deployer. That fallback was
+		// in a function no deploy path ever called, and it has since been
+		// deleted. What actually runs (deployer.perAppAddonSecrets) has no
+		// fallback: zero attachment rows means zero addon Secrets in
+		// envFrom. The pod really does receive no addon variables, so say so.
+		return output.Red("none attached") + output.Dim(" — no addon variables reach this pod")
 	}
 	parts := make([]string, len(addons))
 	for i, a := range addons {

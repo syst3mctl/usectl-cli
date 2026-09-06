@@ -80,9 +80,9 @@ func runPodsList(machineID string) error {
 	}
 	rows := make([][]string, len(stats.Pods))
 	for i, p := range stats.Pods {
-		rows[i] = []string{p.Name, p.Status, p.CPU, p.Memory, p.NetRx, p.NetTx, strconv.Itoa(int(p.Restarts))}
+		rows[i] = []string{p.Name, p.Status, p.CPU, p.Memory, p.Storage, p.NetRx, p.NetTx, strconv.Itoa(int(p.Restarts))}
 	}
-	output.Table([]string{"NAME", "STATUS", "CPU", "MEMORY", "NET RX", "NET TX", "RESTARTS"}, rows)
+	output.Table([]string{"NAME", "STATUS", "CPU", "MEMORY", "STORAGE", "NET RX", "NET TX", "RESTARTS"}, rows)
 	return nil
 }
 
@@ -101,9 +101,19 @@ var podsListCmd = &cobra.Command{
 // configuration, and mixing them in made the block unreadable.
 var podsStatsCmd = &cobra.Command{
 	Use:   "stats [machine]",
-	Short: "CPU / memory / network per running pod",
+	Short: "CPU / memory / storage / network per running pod",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Was args[0] under MaximumNArgs(1), so `pods stats` with no argument
+		// panicked on an out-of-range index instead of falling back to the
+		// machine from 'usectl use' the way every sibling command does.
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
+			return err
+		}
 		return runPodsList(args[0])
 	},
 }

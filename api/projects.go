@@ -141,13 +141,23 @@ type ProjectStats struct {
 }
 
 type PodStats struct {
-	Name     string `json:"name"`
+	Name string `json:"name"`
+	// Formatted for display ("12.3m", "245.3 MB"). Never parse these — use
+	// the raw numerics below, which the API sends alongside them.
 	CPU      string `json:"cpu"`
 	Memory   string `json:"memory"`
+	Storage  string `json:"storage"`
 	NetRx    string `json:"net_rx"`
 	NetTx    string `json:"net_tx"`
 	Status   string `json:"status"`
 	Restarts int32  `json:"restarts"`
+	// Raw usage, for comparing against a pod's declared limits. Zero when the
+	// kubelet did not report a sample for this pod, or against an API server
+	// older than the change that added them — zero means "no sample", not
+	// "idle", so never render it as 0%.
+	CPUMillis    float64 `json:"cpu_millis,omitempty"`
+	MemoryBytes  int64   `json:"memory_bytes,omitempty"`
+	StorageBytes int64   `json:"storage_bytes,omitempty"`
 }
 
 type LogsResponse struct {

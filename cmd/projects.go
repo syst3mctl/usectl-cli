@@ -1093,8 +1093,18 @@ granting you direct /bin/sh access into the machine's running container securely
 var projectsDiagnosticsCmd = &cobra.Command{
 	Use:     "diagnostics [machine]",
 	Short:   "View K8s crash reports, reasons, and previous logs for a failing pod",
-	Long:    `Returns precise Kubernetes pod lifecycle events to debug crash loops or CreateContainerConfigErrors.`,
-	Example: `  usectl machines diagnostics a8f15889`,
+	Long: `Returns precise Kubernetes pod lifecycle events to debug crash loops or
+CreateContainerConfigErrors.
+
+This reads back what Kubernetes noticed, so it only helps when the pod actually
+failed. A pod that starts fine but behaves wrongly — most often because no
+addon is attached to it, so it has no DATABASE_URL — produces no events at all
+and will look healthy here. Use 'usectl machines doctor' for that class of
+problem.
+
+Takes a machine and nothing else; it reports on that machine's failing pod.`,
+	Example: `  usectl machines diagnostics a8f15889
+  usectl machines doctor a8f15889     # config problems that never crash`,
 	Args:    cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)

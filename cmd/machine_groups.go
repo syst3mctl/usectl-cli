@@ -41,7 +41,7 @@ func attachMachineScopedCommands() {
 	// `machines` and help keeps teaching the canonical spelling. Re-adding a
 	// command to a parent it already has is a no-op for dispatch and only
 	// resets that pointer.
-	shortcuts := []*cobra.Command{podsCmd, machineUsageCmd, machineSettingsCmd, enterCmd}
+	shortcuts := []*cobra.Command{podsCmd, machineUsageCmd, machineSettingsCmd, enterCmd, doctorCmd}
 	for _, c := range shortcuts {
 		// These are already children of projectsCmd from their own init().
 		// AddCommand appends without de-duplicating, so re-adding them listed

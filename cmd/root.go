@@ -113,9 +113,17 @@ Mental model — a MACHINE and a POD are different things:
 
   ADDONS (postgres, redis, nats, mongodb, s3, ...) are provisioned per
   machine, but a pod only receives their credentials once the addon is
-  ATTACHED to it. A pod with NO attachments inherits every addon in the
-  machine; a pod with some attachments receives only those. Never set
-  DATABASE_URL, REDIS_URL and the like by hand — they are injected.
+  ATTACHED to it. A pod with NO attachments receives NO addon variables at
+  all — it starts fine and simply has no DATABASE_URL, which is the usual
+  reason a pod cannot reach a database that plainly exists. Adding an addon
+  to the machine does not reach pods that already exist, either.
+
+    usectl machines pods create api web --repo <url> --addon database
+    usectl machines pods attach-addon api web database   # or --all
+    usectl machines doctor api                           # find pods with none
+
+  Never set DATABASE_URL, REDIS_URL and the like by hand — they are injected
+  from the attached addon and would be overwritten.
 
 REACHABILITY — a pod is not reachable until it has a domain:
 
