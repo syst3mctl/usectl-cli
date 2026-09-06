@@ -342,7 +342,10 @@ func (v *podsView) domainsFor(a api.ProjectApp) []string {
 		}
 	}
 	if len(out) == 0 && a.Domain != "" {
-		out = append(out, a.Domain) // legacy single-domain machines
+		// Fallback to the pod's own domain column. Expand it the way the
+		// deployer does — a bare label is a platform subdomain — so the value
+		// shown is the host that actually serves, not the label that was typed.
+		out = append(out, expandDomain(a.Domain))
 	}
 	sort.Strings(out)
 	return out
