@@ -29,26 +29,46 @@ var rootCmd = &cobra.Command{
 management for your applications on Kubernetes.
 
 Command Groups:
-  login/register   Authenticate with the platform
+  login / logout   Authenticate (browser by default; --password for CI)
+  register         Create an account
   profile          View and update your user profile
-  machines         Create, resize, delete and monitor machines
-  machines pods    Every pod in a machine: config, limits, and where it runs
-  machines addons  Addons (database, redis, nats, mongodb, s3, ...)
-  machines members Members, roles, invitations, per-developer scope
-  machines groups  Partition pods/addons into isolated group namespaces
-  machines quota   Resource quota, usage against limits, resize previews
-  machines envs    Machine-wide environment variables
-  machines domains Custom domains (incl. per-pod pinning + verify)
-  machines cron    Scheduled cron jobs and run history
+  use              Remember a default machine (and pod) for later commands
+  schema           Print the whole command tree as JSON, for scripts and agents
+
+  machines             Create, resize, delete and monitor machines
+  machines pods        Every pod: config, limits, node, addons, ports, env
+  machines addons      Addons (database, redis, nats, mongodb, s3, ...)
+  machines envs        Environment variables, machine-wide or per pod
+  machines groups      Partition pods/addons into isolated group namespaces
+  machines members     Members, roles, invitations, per-developer scope
+  machines domains     Custom domains, including per-pod pinning
+  machines cron        Scheduled cron jobs and run history
+  machines quota       Quota, recommendations, resize previews
+  machines usage       Allocation against the plan's limits
+  machines settings    Machine-level configuration
+  machines vars        Build-time vs runtime variable exposure
+  machines s3          Object storage for a machine
+  machines enter       Interactive sub-shell scoped to one machine
+
   deployments      Deployment history; roll back to a previous build
+  domains          Register, attach and verify domains you own
+  project-domains  List the domains attached to one machine
   registry         Container-image allowance and what is consuming it
+  images           Manage image-sourced pods' references
   notifications    View and acknowledge in-app notifications
   billing          Manage your subscription and payment
+  project-billing  Per-machine billing status and portal
   price            Server-side price calculator
+  storage          Storage usage for a machine
   stack-detect     Detect language/framework for a (repo, ref)
-  github           GitHub App integration (OAuth, repos, branches)
+  trial-status     Show your current trial countdown
+  github / google  OAuth integrations
   orgs             Manage organizations, members, invitations
   admin            Admin-only user management
+  mcp              Model Context Protocol config for AI assistants
+
+Every machine-scoped group is reachable two ways: 'usectl machines addons ...'
+and 'usectl addons ...' run the same command.
 
 All commands support --json for machine-readable output, making the CLI
 suitable for scripting and AI agent automation.
@@ -68,6 +88,12 @@ Quick Start:
 ──────────────────────────────────────────────────────────────────────────
 AI AGENT GUIDE
 ──────────────────────────────────────────────────────────────────────────
+
+Start here: 'usectl schema --json' prints the entire command tree — every
+command, alias, argument shape and flag — in one call. It is generated from
+the live tree, so it always matches this binary, and it carries notes on
+target resolution, reachability, and which commands are destructive. Read it
+instead of scraping --help recursively.
 
 Mental model — a MACHINE and a POD are different things:
 

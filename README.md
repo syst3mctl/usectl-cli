@@ -310,6 +310,7 @@ from the addon and would be overwritten.
 
 ```bash
 usectl schema --json      # the entire command tree: args, flags, aliases
+usectl schema             # the same tree as a readable outline
 ```
 
 One call replaces recursively scraping `--help`. The document is generated from
