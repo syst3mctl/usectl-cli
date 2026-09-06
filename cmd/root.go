@@ -40,7 +40,6 @@ Command Groups:
   machines envs    Machine-wide environment variables
   machines domains Custom domains (incl. per-pod pinning + verify)
   machines cron    Scheduled cron jobs and run history
-  apps             Alias for 'machines pods' (multi-pod management)
   deployments      Deployment history; roll back to a previous build
   registry         Container-image allowance and what is consuming it
   notifications    View and acknowledge in-app notifications

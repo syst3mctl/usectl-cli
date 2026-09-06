@@ -80,12 +80,26 @@ func printPodEnv(client *api.Client, machineID, podID string) error {
 	if err != nil {
 		return err
 	}
+
+	// The endpoint merges only the project and app vaults (sources "project"
+	// and "app"); it does not know about addon-injected variables at all. Yet
+	// DATABASE_URL, REDIS_URL and the rest genuinely reach the container, via
+	// EnvFrom on the addon's Secret. Reporting only what the endpoint returns
+	// therefore tells the user that nothing reaches a pod that is in fact
+	// fully wired up, so the addon keys are folded in here.
+	addonVars := podAddonVars(client, machineID, podID)
+
 	if jsonOutput {
-		return output.JSON(resp)
+		return output.JSON(struct {
+			Vars  []api.AppEnvVarEntry `json:"vars"`
+			Addon []addonVar           `json:"addon_vars"`
+		}{resp.Vars, addonVars})
 	}
-	if resp == nil || len(resp.Vars) == 0 {
+	if (resp == nil || len(resp.Vars) == 0) && len(addonVars) == 0 {
 		fmt.Println("No variables reach this pod yet.")
-		fmt.Println(output.Dim("  attach an addon, or set one:  usectl machines pods env <machine> <pod> KEY=value"))
+		fmt.Println(output.Dim("  set one:      usectl machines envs <machine> <pod> KEY=value"))
+		fmt.Println(output.Dim("  attach one:   usectl machines pods attach-addon <machine> <pod> database"))
+		fmt.Println(output.Dim("  see what an addon injects before attaching:  usectl machines addons catalog"))
 		return nil
 	}
 
@@ -115,9 +129,17 @@ func printPodEnv(client *api.Client, machineID, podID string) error {
 		}
 		rows = append(rows, []string{output.Cyan(v.Key), val, src})
 	}
+	for _, av := range addonVars {
+		val := av.Value
+		if !envReveal && secretKey(av.Key, val) {
+			val = output.Dim(maskValue(val, false))
+		}
+		rows = append(rows, []string{output.Cyan(av.Key), val, "addon:" + av.Addon})
+	}
 	output.Table([]string{"KEY", "VALUE", "SOURCE"}, rows)
 	fmt.Println()
-	fmt.Println(output.Dim("source: 'addon' values come from attached addons; 'user' from machine-wide or per-pod variables."))
+	fmt.Println(output.Dim("source: 'app' is this pod's own override, 'project' is machine-wide,"))
+	fmt.Println(output.Dim("        'addon:<type/name>' is injected from an attached addon."))
 	if !envReveal {
 		fmt.Println(output.Dim("secrets masked — pass --reveal to show"))
 	}
@@ -177,4 +199,49 @@ var envReveal bool
 func init() {
 	podsEnvCmd.Flags().BoolVar(&envReveal, "reveal", false, "Show secret values in clear text")
 	envsCmd.Flags().BoolVar(&envReveal, "reveal", false, "Show secret values in clear text")
+}
+
+// addonVar is one variable an addon injects into a pod.
+type addonVar struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	Addon string `json:"addon"`
+}
+
+// podAddonVars returns the variables the addons attached to this pod inject.
+//
+// It mirrors deployer.perAppAddonSecrets, including its fallback: a pod with NO
+// attachment rows receives EVERY addon in the machine (deployer.go:1026). Only
+// listing explicit attachments would under-report exactly the pods that are
+// wired up by default.
+//
+// Keys prefixed with "_" are platform metadata, not variables the container
+// sees, so they are excluded.
+func podAddonVars(client *api.Client, machineID, podID string) []addonVar {
+	all, err := client.ListProjectAddons(machineID)
+	if err != nil || len(all) == 0 {
+		return nil
+	}
+	effective := all
+	if attached, aErr := client.ListAppAddonAttachments(machineID, podID); aErr == nil && len(attached) > 0 {
+		effective = attached
+	}
+
+	out := []addonVar{}
+	for _, a := range effective {
+		label := a.AddonType + "/" + a.Name
+		prefix := addonEnvPrefix(&a)
+		for k, v := range a.Config {
+			bare := k
+			if prefix != "" {
+				bare = strings.TrimPrefix(k, prefix)
+			}
+			if strings.HasPrefix(bare, "_") {
+				continue
+			}
+			out = append(out, addonVar{Key: k, Value: v, Addon: label})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
 }

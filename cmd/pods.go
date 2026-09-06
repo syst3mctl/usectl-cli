@@ -308,7 +308,9 @@ func init() {
 	podsCmd.AddCommand(podsListCmd, podsCreateCmd, podsStatsCmd, podsLogsCmd, podsShellCmd,
 		podsDiagnosticsCmd, podsRestartCmd,
 		podsAddonsCmd, podsAttachAddonCmd, podsDetachAddonCmd,
-		podsSetCmd, podsOpenPortCmd, podsClosePortCmd, podsEnvCmd, podsDeleteCmd)
+		podsSetCmd, podsOpenPortCmd, podsClosePortCmd, podsEnvCmd, podsDeleteCmd,
+		podsStartCmd, podsStopCmd, podsInternalCmd, podsRevealCmd,
+		podsTrafficCmd, podsInsightsCmd)
 	// Attach under the renamed `machines` (a.k.a. `projects`) command.
 	projectsCmd.AddCommand(podsCmd)
 }

@@ -40,8 +40,8 @@ Runs 'docker save' on the image, uploads the tarball directly to object
 storage, and asks the platform to move it into the registry. You never handle
 registry credentials — the push happens inside the cluster.
 
-The app must be image-sourced (usectl apps create --image, or
-usectl apps update --image).`,
+The app must be image-sourced (usectl machines pods create --image, or
+usectl machines pods set <pod> image=<ref>).`,
 	Example: `  # Build locally, then ship it
   docker build -t myapi:v3 .
   usectl images push a8f15889 web-app-id myapi:v3

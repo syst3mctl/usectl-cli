@@ -154,3 +154,37 @@ func resolvePodAppArgs(client *api.Client, args []string) (string, string, *api.
 	}
 	return "", "", nil, nil, fmt.Errorf("pod %s not found", podID)
 }
+
+// parseExtraPorts parses repeatable --extra-port specs into AppPort values.
+// Accepted forms: "name:port/proto", "name:port", "port/proto", "port"
+// (e.g. "grpc:9094/tcp", "9094"). Name and protocol defaults are filled in by
+// the backend, which also validates ranges and uniqueness — this parser is
+// deliberately lenient.
+//
+// Carried over from the removed `usectl apps` group, which owned it.
+func parseExtraPorts(specs []string) ([]api.AppPort, error) {
+	out := make([]api.AppPort, 0, len(specs))
+	for _, raw := range specs {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		proto := ""
+		if i := strings.LastIndex(s, "/"); i >= 0 {
+			proto = strings.ToUpper(strings.TrimSpace(s[i+1:]))
+			s = s[:i]
+		}
+		name := ""
+		portStr := s
+		if i := strings.Index(s, ":"); i >= 0 {
+			name = strings.TrimSpace(s[:i])
+			portStr = strings.TrimSpace(s[i+1:])
+		}
+		port, err := strconv.Atoi(strings.TrimSpace(portStr))
+		if err != nil {
+			return nil, fmt.Errorf("invalid --extra-port %q: expected [name:]port[/proto]", raw)
+		}
+		out = append(out, api.AppPort{Name: name, Port: port, Protocol: proto})
+	}
+	return out, nil
+}

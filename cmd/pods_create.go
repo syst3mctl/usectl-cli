@@ -41,6 +41,7 @@ var (
 	podCreateKind       string
 	podCreateCommand    string
 	podCreateExtraPorts []string
+	podCreateArgs       []string
 	podCreateAddons     []string
 	podCreateAllAddons  bool
 	podCreateAutoDeploy bool
@@ -131,8 +132,35 @@ Run with no flags on a terminal to be prompted for each value.`,
 					podCreatePort = p
 				}
 			}
+			// A public web pod with no domain has no IngressRoute, so nothing
+			// can reach it — the pod runs and is simply unreachable. The
+			// prompt therefore defaults to a working subdomain instead of
+			// offering "none": pressing enter must produce something usable.
+			//
+			// The deployer appends .usectl.com to any value without a dot
+			// (deployer/k8s.go), so a bare label is a platform subdomain and a
+			// dotted value is the user's own domain.
+			if podCreateKind == "web" && !podCreatePrivate && podCreateDomain == "" {
+				fmt.Println(output.Dim("  a bare name becomes <name>.usectl.com; enter a dotted name to use your own domain"))
+				fmt.Println(output.Dim("  enter '-' for no domain (reachable only from other pods in the machine)"))
+				podCreateDomain = ask("Domain", name)
+				if podCreateDomain == "-" || strings.EqualFold(podCreateDomain, "none") {
+					podCreateDomain = ""
+				}
+			}
 			if podCreateKind != "web" && podCreateCommand == "" {
 				podCreateCommand = ask("Command", "")
+			}
+			if len(podCreateArgs) == 0 && podCreateCommand != "" {
+				// Split on spaces, honouring quotes, so an argument containing
+				// a space survives: --arg is repeatable but a prompt is one line.
+				if raw := ask("Args (space separated, blank = none)", ""); raw != "" {
+					parsed, aErr := splitArgs(raw)
+					if aErr != nil {
+						return aErr
+					}
+					podCreateArgs = parsed
+				}
 			}
 			// Offer the machine's addons rather than making the user go and
 			// look them up.
@@ -221,6 +249,7 @@ Run with no flags on a terminal to be prompted for each value.`,
 			IsPublic:         &isPublic,
 			Kind:             podCreateKind,
 			Command:          podCreateCommand,
+			Args:             podCreateArgs,
 			ExtraPorts:       extra,
 		}
 		if podCreateInstallID > 0 {
@@ -238,6 +267,19 @@ Run with no flags on a terminal to be prompted for each value.`,
 			if podCreateKind == "web" {
 				fmt.Printf("  %-12s %d (%s)\n", "Port", podCreatePort,
 					map[bool]string{true: "public", false: "internal"}[isPublic])
+			}
+			if podCreateKind == "web" {
+				switch {
+				case podCreatePrivate:
+					fmt.Printf("  %-12s %s\n", "Reachable", output.Yellow("internal only (no IngressRoute)"))
+				case podCreateDomain == "":
+					fmt.Printf("  %-12s %s\n", "Reachable", output.Yellow("internal only — no domain, so nothing external can reach it"))
+				default:
+					fmt.Printf("  %-12s %s\n", "URL", output.Cyan("https://"+expandDomain(podCreateDomain)))
+				}
+			}
+			if podCreateCommand != "" {
+				fmt.Printf("  %-12s %s %s\n", "Command", podCreateCommand, strings.Join(podCreateArgs, " "))
 			}
 			if len(addonIDs) > 0 {
 				fmt.Printf("  %-12s %d attached\n", "Addons", len(addonIDs))
@@ -266,6 +308,14 @@ Run with no flags on a terminal to be prompted for each value.`,
 			return output.JSON(app)
 		}
 		fmt.Printf("✓ Pod created: %s (%s)\n", app.Name, app.ID)
+		if podCreateKind == "web" {
+			if podCreateDomain != "" {
+				fmt.Printf("  URL        https://%s\n", expandDomain(podCreateDomain))
+			} else if !podCreatePrivate {
+				fmt.Println("  ⚠ No domain attached — this pod will not be reachable from outside the cluster.")
+				fmt.Println("    Attach one:  usectl machines domains ...")
+			}
+		}
 		if podCreateImage != "" {
 			fmt.Printf("  Source     image %s (no build runs)\n", podCreateImage)
 		} else {
@@ -296,6 +346,7 @@ func init() {
 	f.BoolVar(&podCreatePrivate, "private", false, "Cluster-internal only — no IngressRoute")
 	f.StringVar(&podCreateKind, "kind", "web", "Pod kind: web, worker, release")
 	f.StringVar(&podCreateCommand, "command", "", "Override the container command (required for worker/release)")
+	f.StringArrayVar(&podCreateArgs, "arg", nil, "Container argument, after --command (repeatable)")
 	f.StringArrayVar(&podCreateExtraPorts, "extra-port", nil, "Extra internal-only port [name:]port[/proto] (repeatable)")
 	f.StringSliceVar(&podCreateAddons, "addon", nil, "Attach an addon by name, type, or type/name (repeatable)")
 	f.BoolVar(&podCreateAllAddons, "all-addons", false, "Attach every addon in the machine")
@@ -355,4 +406,13 @@ Irreversible, so the pod's name must be typed to confirm — or --yes passed.`,
 		fmt.Printf("✓ Pod %q deleted\n", name)
 		return nil
 	},
+}
+
+// expandDomain mirrors the deployer: a value with no dot is a platform
+// subdomain, anything else is used verbatim.
+func expandDomain(d string) string {
+	if d == "" || strings.Contains(d, ".") {
+		return d
+	}
+	return d + ".usectl.com"
 }

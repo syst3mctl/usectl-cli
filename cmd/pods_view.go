@@ -404,7 +404,12 @@ func limitsLine(a api.ProjectApp) string {
 // cannot connect to anything.
 func addonsLine(addons []api.ProjectAddon) string {
 	if len(addons) == 0 {
-		return output.Dim("none attached (no addon env vars injected)")
+		// NOT the same as "receives nothing": a pod with no attachment rows
+		// inherits every addon in the machine (deployer.perAppAddonSecrets
+		// falls back to the project-wide list). Saying "none attached" alone
+		// reads as "no addon variables reach this pod", which is the opposite
+		// of what happens.
+		return output.Yellow("none pinned") + output.Dim(" — inherits every addon in the machine")
 	}
 	parts := make([]string, len(addons))
 	for i, a := range addons {
