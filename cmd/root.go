@@ -19,7 +19,7 @@ var (
 // Version is set at build time by GoReleaser via ldflags. The default below
 // reflects the latest released version so unstamped local builds still report
 // something meaningful.
-var Version = "v2.0.1"
+var Version = "v2.0.2"
 
 var rootCmd = &cobra.Command{
 	Use:     "usectl",
