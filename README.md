@@ -216,6 +216,26 @@ Sizes accept a bare number of GB or a suffix: `--ram 4`, `--ram 4gb` and
 
 `pods set` with no `key=value` prints every settable key with its current value.
 
+#### A pod needs a domain to be reachable
+
+Creating a pod does **not** publish it. Without a domain it gets a ClusterIP
+Service and no IngressRoute — reachable from sibling pods in the same machine by
+name, and from nothing else. A browser, a webhook, another machine, or a
+frontend calling an API all need a domain:
+
+```bash
+usectl machines pods create api web --repo <url> --port 8080 --domain api
+usectl machines pods set api web domain=api.example.com
+```
+
+No dot → a platform subdomain (`api` → `api.usectl.com`). With a dot → your own
+domain, whose DNS must point at the platform.
+
+Omit it only for a genuinely internal pod — a worker, a queue consumer, a
+backend called by a sibling — and pass `--private` to say so. `machines pods`
+shows this per pod: `public → host` when reachable, `public (no domain
+attached)` when nothing can call it.
+
 #### Pods from a prebuilt image — no GitHub involved
 
 ```bash

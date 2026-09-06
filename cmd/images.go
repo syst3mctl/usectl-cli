@@ -57,6 +57,9 @@ usectl machines pods set <pod> image=<ref>).`,
 		if err != nil {
 			return err
 		}
+		if args, err = resolveFirstArg(client, args); err != nil {
+			return err
+		}
 		projectID, appID := args[0], args[1]
 
 		tarPath := imagePushFile

@@ -32,10 +32,13 @@ var (
 var varsProjectDefaultsCmd = &cobra.Command{
 	Use:   "project-defaults [machine]",
 	Short: "Set the machine-level default build_target + .env file config",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		req := api.ProjectVarDefaultsRequest{
@@ -67,10 +70,13 @@ var varsAppDefaultsCmd = &cobra.Command{
 	Short: "Override the machine default for a single app (or clear an override)",
 	Long: `Per-app overrides are nullable — pass --clear-build-target or
 --clear-dotenv-path to remove an override and inherit the machine default.`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		req := api.AppVarDefaultsRequest{}
@@ -101,10 +107,13 @@ var varsAppDefaultsCmd = &cobra.Command{
 var varsExposureGetCmd = &cobra.Command{
 	Use:   "exposure [machine] <app-id>",
 	Short: "Show the resolved exposure (project + app defaults + per-key overrides)",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		resp, err := client.GetAppVarExposure(args[0], args[1])
@@ -145,10 +154,13 @@ var (
 var varsExposureSetCmd = &cobra.Command{
 	Use:   "expose [machine] <app-id> <key>",
 	Short: "Set a per-variable build-target override for an app",
-	Args:  cobra.ExactArgs(3),
+	Args:  cobra.RangeArgs(2, 3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		exp := api.VarExposure{
@@ -167,10 +179,13 @@ var varsExposureSetCmd = &cobra.Command{
 var varsExposureDeleteCmd = &cobra.Command{
 	Use:   "unexpose [machine] <app-id> <key>",
 	Short: "Delete a per-variable override (revert to the resolved default)",
-	Args:  cobra.ExactArgs(3),
+	Args:  cobra.RangeArgs(2, 3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		if err := client.DeleteVarExposure(args[0], args[1], args[2]); err != nil {

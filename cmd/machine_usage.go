@@ -20,7 +20,7 @@ import (
 // infer it.
 
 var machineUsageCmd = &cobra.Command{
-	Use:     "usage <machine>",
+	Use:     "usage [machine]",
 	Aliases: []string{"limits"},
 	Short:   "Show resource usage against the machine's limits",
 	Long: `Show how much of the machine's vCPU, RAM and storage its pods have reserved,
@@ -31,13 +31,18 @@ utilisation — a machine can be full while every pod is idle. Use
 'machines pods stats' for live CPU and memory.`,
 	Example: `  usectl machines usage api
   usectl machines usage api --json`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		machineID, err := resolveMachine(client, args[0])
+		ref, src, err := machineRef(firstOrEmpty(args))
+		if err != nil {
+			return err
+		}
+		echoMachineSource(ref, src)
+		machineID, err := resolveMachine(client, ref)
 		if err != nil {
 			return err
 		}

@@ -33,7 +33,7 @@ var machineSettings = []machineSetting{
 }
 
 var machineSettingsCmd = &cobra.Command{
-	Use:   "settings <machine> [key=value ...]",
+	Use:   "settings [machine] [key=value ...]",
 	Short: "Show or change machine-level settings",
 	Long: `Run without key=value pairs to list the settable keys and their current
 values.
@@ -44,13 +44,18 @@ per-pod settings. Use 'usectl machines pods set' for those, and
 	Example: `  usectl machines settings api
   usectl machines settings api preview-envs=true
   usectl machines settings api name=api-v2`,
-	Args: cobra.MinimumNArgs(1),
+	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		machineID, err := resolveMachine(client, args[0])
+		ref, src, err := machineRef(firstOrEmpty(args))
+		if err != nil {
+			return err
+		}
+		echoMachineSource(ref, src)
+		machineID, err := resolveMachine(client, ref)
 		if err != nil {
 			return err
 		}

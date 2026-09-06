@@ -87,15 +87,20 @@ var addonsCatalogCmd = &cobra.Command{
 }
 
 var addonsListCmd = &cobra.Command{
-	Use:   "list <machine>",
+	Use:   "list [machine]",
 	Short: "List a machine's addons with size, version, backups and UI",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		machineID, err := resolveMachine(client, args[0])
+		ref, src, err := machineRef(firstOrEmpty(args))
+		if err != nil {
+			return err
+		}
+		echoMachineSource(ref, src)
+		machineID, err := resolveMachine(client, ref)
 		if err != nil {
 			return err
 		}

@@ -38,10 +38,13 @@ something landed on, or delete one pod without restarting the whole machine.`,
 var kpodsListCmd = &cobra.Command{
 	Use:   "list [machine]",
 	Short: "List every pod in the machine's namespaces",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		pods, err := client.ListNamespacePods(args[0])
@@ -88,10 +91,13 @@ replacement, so this is effectively "restart just this one".
 
 Narrower than 'machines pods restart', which rolls every app in the machine.
 Reach for this when one replica is wedged and the rest are healthy.`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		machineID, podName := args[0], args[1]
@@ -129,10 +135,13 @@ var registryUsageCmd = &cobra.Command{
 
 The allowance is separate from the plan's storage_gb: images live in the shared
 platform registry, not in the machine's volumes.`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		u, err := client.GetRegistryUsage(args[0])
@@ -177,10 +186,13 @@ cannot be renamed. Delete it, recreate it, and reassign its members.`,
 var groupsListCmd = &cobra.Command{
 	Use:   "list [machine]",
 	Short: "List a machine's groups",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		groups, err := client.ListProjectGroups(args[0])
@@ -214,10 +226,13 @@ var groupsCreateCmd = &cobra.Command{
 
 The name becomes part of a Kubernetes namespace, so it is lowercased and must
 be DNS-safe.`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		var sort *int
@@ -239,10 +254,13 @@ be DNS-safe.`,
 var groupsDeleteCmd = &cobra.Command{
 	Use:   "delete [machine] <group-id>",
 	Short: "Delete a group",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		if !groupYes && !jsonOutput {

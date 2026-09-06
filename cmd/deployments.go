@@ -39,10 +39,13 @@ redeploys.`,
 var deploymentsListCmd = &cobra.Command{
 	Use:   "list [machine]",
 	Short: "List a machine's deployments, newest first",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		page, err := client.ListDeployments(args[0], deploymentsStatus, deploymentsApp, deploymentsPage, deploymentsPerPage)
@@ -107,10 +110,13 @@ The image is read from the stored deployment record rather than recomputed, so
 what redeploys is the build that actually ran. If retention has reclaimed that
 image the API refuses with 410 — 'deployments list' shows those rows as
 "image reclaimed".`,
-	Args: cobra.ExactArgs(3),
+	Args: cobra.RangeArgs(2, 3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		machineID, appID, deploymentID := args[0], args[1], args[2]

@@ -86,8 +86,35 @@ Mental model — a MACHINE and a POD are different things:
     usectl machines pods create api --repo <url> --branch main --port 8080
 
   ADDONS (postgres, redis, nats, mongodb, s3, ...) are provisioned per
-  machine; their credentials are auto-injected into every pod as env vars
-  (DATABASE_URL, REDIS_URL, ...). Never set those by hand.
+  machine, but a pod only receives their credentials once the addon is
+  ATTACHED to it. A pod with NO attachments inherits every addon in the
+  machine; a pod with some attachments receives only those. Never set
+  DATABASE_URL, REDIS_URL and the like by hand — they are injected.
+
+REACHABILITY — a pod is not reachable until it has a domain:
+
+  Creating a pod does NOT publish it. Without a domain the pod gets a
+  ClusterIP Service and no IngressRoute, so it is reachable only from other
+  pods in the same machine, by its name. Nothing outside the cluster — a
+  browser, a webhook, another machine, a frontend calling an API — can
+  reach it.
+
+  So whenever the user wants something reachable, attach a domain:
+
+    usectl machines pods create api web --repo <url> --port 8080 --domain api
+    usectl machines pods set api web domain=api.example.com
+
+  A value with NO dot becomes a platform subdomain (api -> api.usectl.com).
+  A value WITH a dot is used as the user's own domain, and needs its DNS
+  pointed at the platform.
+
+  Leave the domain off only when the pod is genuinely internal — a worker,
+  a queue consumer, or a backend that is called by a sibling pod rather
+  than from outside. Pair that with --private, which states the intent.
+
+  'usectl machines pods <machine>' reports this per pod on the 'visibility'
+  line: "public -> host" when reachable, "public (no domain attached)" when
+  it is not, which is a pod nothing can call.
 
   GROUPS partition a machine's pods and addons into sibling namespaces with
   NetworkPolicy isolation between them. Group names are unique per machine.

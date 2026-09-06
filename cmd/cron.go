@@ -33,10 +33,13 @@ var cronListCmd = &cobra.Command{
 	Short:   "List all cron jobs for a machine",
 	Example: `  usectl cron list a8f15889
   usectl cron ls a8f15889 --json`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		crons, err := client.ListProjectCrons(args[0])
@@ -88,10 +91,13 @@ Common presets:
   0 0 * * 0      — Weekly on Sunday`,
 	Example: `  usectl cron add a8f15889 --name cleanup --schedule "*/5 * * * *" --command "./cleanup.sh"
   usectl cron add a8f15889 --name backup --schedule "0 2 * * *" --command "npm run backup"`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 
@@ -121,10 +127,13 @@ var cronUpdateCmd = &cobra.Command{
 	Example: `  usectl cron update a8f15889 d4e5f6a7 --schedule "0 3 * * *"
   usectl cron update a8f15889 d4e5f6a7 --enabled false
   usectl cron update a8f15889 d4e5f6a7 --command "npm run new-task"`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 
@@ -159,10 +168,13 @@ var cronDeleteCmd = &cobra.Command{
 	Aliases: []string{"rm", "remove"},
 	Short:   "Delete a cron job",
 	Example: `  usectl cron delete a8f15889 d4e5f6a7`,
-	Args:    cobra.ExactArgs(2),
+	Args:    cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 

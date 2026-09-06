@@ -30,10 +30,13 @@ var s3ListCmd = &cobra.Command{
 Use --prefix to filter by path prefix.`,
 	Example: `  usectl machines s3 list a8f15889
   usectl machines s3 list a8f15889 --prefix uploads/`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 
@@ -80,10 +83,13 @@ var s3DownloadCmd = &cobra.Command{
 directory using the object's filename, or to a custom path with --output.`,
 	Example: `  usectl machines s3 download a8f15889 --key uploads/photo.jpg
   usectl machines s3 download a8f15889 --key data.csv --output /tmp/data.csv`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 
@@ -106,10 +112,13 @@ var s3ToggleCmd = &cobra.Command{
 user are provisioned. When disabled, the S3 flag is cleared (bucket remains).`,
 	Example: `  usectl machines s3 toggle a8f15889 --enable
   usectl machines s3 toggle a8f15889 --enable=false`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 
@@ -137,10 +146,13 @@ When disabled, all CDN URLs return 403 Forbidden.
 Use ?v=<timestamp> query parameters for cache busting.`,
 	Example: `  usectl machines s3 cdn a8f15889          # Toggle CDN on/off
   # CDN URL: https://cdn.usectl.com/a0545a2c/photo.jpg`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 

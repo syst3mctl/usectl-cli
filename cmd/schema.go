@@ -59,6 +59,7 @@ type schemaNotes struct {
 	NonInteractive      string   `json:"non_interactive"`
 	JSONOutput          string   `json:"json_output"`
 	NamingModel         string   `json:"naming_model"`
+	Reachability        string   `json:"reachability"`
 	DestructiveCommands []string `json:"destructive_commands"`
 }
 
@@ -89,7 +90,8 @@ Without --json the same tree is printed as an indented outline.`,
 				},
 				NonInteractive: "Commands that would prompt (machines create, machines pods create, machines addons add) never prompt when --json or --yes is set, or when stdin is not a terminal. They exit non-zero listing the missing flags.",
 				JSONOutput:     "--json is accepted by every command and disables colour. Errors go to stderr; the exit code is non-zero on failure.",
-				NamingModel:    "A MACHINE is a namespace plus a vCPU/RAM/storage quota and one subscription; it holds no code. A POD is one workload inside a machine and owns repo/branch or image, domain, ports, visibility, limits and rollout strategy. Addons are provisioned per machine and must be ATTACHED to a pod before that pod receives their env vars.",
+				NamingModel:    "A MACHINE is a namespace plus a vCPU/RAM/storage quota and one subscription; it holds no code. A POD is one workload inside a machine and owns repo/branch or image, domain, ports, visibility, limits and rollout strategy. Addons are provisioned per machine and must be ATTACHED to a pod before that pod receives their env vars; a pod with no attachments inherits every addon in the machine.",
+				Reachability:   "A pod is NOT reachable from outside the cluster until it has a domain: without one it gets a ClusterIP Service and no IngressRoute, so only sibling pods in the same machine can call it. Attach a domain whenever the user wants something reachable by a browser, a webhook, another machine, or a frontend calling an API — 'usectl machines pods create <m> <name> --domain <d>' or 'usectl machines pods set <m> <pod> domain=<d>'. A value with no dot becomes a platform subdomain (api -> api.usectl.com); a value with a dot is the user's own domain and needs DNS pointed at the platform. Omit the domain only for genuinely internal pods (workers, queue consumers), and pass --private to state that intent.",
 				DestructiveCommands: []string{
 					"usectl machines delete",
 					"usectl machines addons remove",

@@ -26,10 +26,13 @@ Roles:
 var membersListCmd = &cobra.Command{
 	Use:   "list [machine]",
 	Short: "List members of a machine",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		members, err := client.ListProjectMembers(args[0])
@@ -55,10 +58,13 @@ var membersListCmd = &cobra.Command{
 var membersRoleCmd = &cobra.Command{
 	Use:   "role [machine] <user-id> <role>",
 	Short: "Change a member's role (owner|developer|viewer). Owner-only.",
-	Args:  cobra.ExactArgs(3),
+	Args:  cobra.RangeArgs(2, 3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		if err := client.UpdateProjectMemberRole(args[0], args[1], args[2]); err != nil {
@@ -73,10 +79,13 @@ var membersRemoveCmd = &cobra.Command{
 	Use:     "remove [machine] <user-id>",
 	Aliases: []string{"rm"},
 	Short:   "Remove a member from a machine. Owner-only.",
-	Args:    cobra.ExactArgs(2),
+	Args:    cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		if err := client.RemoveProjectMember(args[0], args[1]); err != nil {
@@ -90,10 +99,13 @@ var membersRemoveCmd = &cobra.Command{
 var membersMyRoleCmd = &cobra.Command{
 	Use:   "my-role [machine]",
 	Short: "Show my effective role on a machine (and resource scope, if any)",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		info, err := client.GetMyProjectRole(args[0])
@@ -117,10 +129,13 @@ var membersMyRoleCmd = &cobra.Command{
 var membersScopeGetCmd = &cobra.Command{
 	Use:   "scope-get [machine] <user-id>",
 	Short: "Show the developer's resource whitelist (apps/addons)",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		rs, err := client.GetMemberResources(args[0], args[1])
@@ -158,10 +173,13 @@ replaced atomically — pass --clear to remove all restrictions and grant
 unrestricted developer access.`,
 	Example: `  usectl members scope-set proj user --app app-id-1 --app app-id-2 --addon addon-id-1
   usectl members scope-set proj user --clear`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		var rs []api.MemberResource
@@ -201,10 +219,13 @@ var (
 var membersInviteCreateCmd = &cobra.Command{
 	Use:   "create [machine]",
 	Short: "Invite a user to a machine by email. Owner-only.",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		inv, err := client.CreateProjectInvitation(args[0], projInviteEmail, projInviteRole)
@@ -227,10 +248,13 @@ var membersInviteCreateCmd = &cobra.Command{
 var membersInviteListCmd = &cobra.Command{
 	Use:   "list [machine]",
 	Short: "List pending invitations on a machine",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		invs, err := client.ListProjectInvitations(args[0])
@@ -256,10 +280,13 @@ var membersInviteListCmd = &cobra.Command{
 var membersInviteRevokeCmd = &cobra.Command{
 	Use:   "revoke [machine] <invitation-id>",
 	Short: "Revoke a pending invitation. Owner-only.",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		if err := client.RevokeProjectInvitation(args[0], args[1]); err != nil {

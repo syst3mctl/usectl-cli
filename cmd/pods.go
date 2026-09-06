@@ -100,9 +100,9 @@ var podsListCmd = &cobra.Command{
 // merged view above deliberately omits: those are sampled metrics, not
 // configuration, and mixing them in made the block unreadable.
 var podsStatsCmd = &cobra.Command{
-	Use:   "stats <machine>",
+	Use:   "stats [machine]",
 	Short: "CPU / memory / network per running pod",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runPodsList(args[0])
 	},

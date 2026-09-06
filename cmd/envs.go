@@ -246,7 +246,7 @@ machine's variables.`,
 	Example: `  usectl machines envs protect api protect STRIPE_SECRET_KEY DB_PASSWORD
   usectl machines envs protect api open LOG_LEVEL
   usectl machines envs protect api web protect API_KEY   # this pod's override`,
-	Args: cobra.MinimumNArgs(2),
+	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {

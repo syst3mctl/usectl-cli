@@ -50,10 +50,13 @@ var billingProjectCmd = &cobra.Command{
 var billingProjectGetCmd = &cobra.Command{
 	Use:   "get [machine]",
 	Short: "Show billing status, plan, and resource allocation for a machine",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		b, err := client.GetProjectBilling(args[0])
@@ -83,10 +86,13 @@ var (
 var billingProjectPortalCmd = &cobra.Command{
 	Use:   "portal [machine]",
 	Short: "Open the Stripe billing portal for a machine",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		url, err := client.CreateProjectBillingPortal(args[0], billingProjPortalReturn)
@@ -134,10 +140,13 @@ var priceCmd = &cobra.Command{
 var projectDomainsListCmd = &cobra.Command{
 	Use:   "project-domains [machine]",
 	Short: "List all domains attached to a single machine",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		domains, err := client.GetProjectDomains(args[0])
@@ -174,10 +183,13 @@ var (
 var cronHistoryCmd = &cobra.Command{
 	Use:   "history [machine]",
 	Short: "View past cron job runs (status, duration, logs)",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		resp, err := client.ListCronHistory(args[0], api.CronHistoryFilter{
@@ -222,10 +234,13 @@ var cronHistoryCmd = &cobra.Command{
 var prsDeleteCmd = &cobra.Command{
 	Use:   "delete [machine] <pr-number>",
 	Short: "Tear down a PR preview environment",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		num, err := strconv.Atoi(strings.TrimPrefix(args[1], "#"))
@@ -245,10 +260,13 @@ var prsDeleteCmd = &cobra.Command{
 var cancelDeploymentCmd = &cobra.Command{
 	Use:   "cancel [machine] <deployment-id>",
 	Short: "Cancel a running deployment (kills the build job)",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		if err := client.CancelDeployment(args[0], args[1]); err != nil {
@@ -290,10 +308,13 @@ var trialStatusCmd = &cobra.Command{
 var storageUsageCmd = &cobra.Command{
 	Use:   "storage [machine]",
 	Short: "Show S3 storage usage for a machine",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
 			return err
 		}
 		resp, err := client.GetStorageUsage(args[0])
