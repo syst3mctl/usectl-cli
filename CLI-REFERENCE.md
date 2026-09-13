@@ -28,7 +28,7 @@ machine can hold several. Apps come in three kinds — `web` (accepts traffic),
 deploy, e.g. migrations).
 
 An **addon** is managed infrastructure attached to a machine: Postgres, Redis,
-NATS, MongoDB, S3/MinIO, Meilisearch, MSSQL, OAuth2 Proxy, Grafana, backup,
+NATS, MongoDB, S3/MinIO, MSSQL, OAuth2 Proxy, Grafana, backup,
 dbui, cron.
 
 A **group** partitions a machine's apps and addons into a sibling namespace
