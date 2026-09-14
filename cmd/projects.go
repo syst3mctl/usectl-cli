@@ -359,11 +359,16 @@ namespace.`,
 		sort.Strings(addonsList)
 
 		// Auto-detect the GitHub App installation so pods created later in this
-		// machine can clone private repos without re-supplying it.
+		// machine can clone private repos without re-supplying it — but only
+		// when there is exactly one. With several (a personal account plus an
+		// org, say) picking installations[0] pinned the machine to whichever
+		// GitHub listed first, and a private repo under the other one then
+		// failed to clone with no hint why. A machine has no repo to match
+		// against, so leave it unset and let 'pods create' resolve per repo.
 		if createInstallID == 0 {
 			cfg, _ := config.Load()
 			if cfg != nil && cfg.GitHubToken != "" {
-				if installations, iErr := client.ListGitHubInstallations(cfg.GitHubToken); iErr == nil && len(installations) > 0 {
+				if installations, iErr := client.ListGitHubInstallations(cfg.GitHubToken); iErr == nil && len(installations) == 1 {
 					createInstallID = installations[0].ID
 				}
 			}

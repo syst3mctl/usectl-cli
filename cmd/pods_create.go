@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/giorgi/usectl/api"
+	"github.com/giorgi/usectl/config"
 	"github.com/giorgi/usectl/output"
 	"github.com/spf13/cobra"
 )
@@ -256,6 +257,19 @@ Run with no flags on a terminal to be prompted for each value.`,
 			req.InstallationID = &podCreateInstallID
 		}
 
+		// Resolve the GitHub App installation the way the dashboard does —
+		// by finding the one that can actually see this repo — rather than
+		// leaving it to the user to know an installation id. Without it a
+		// private repo is created fine and then blocked at first deploy,
+		// which is the wrong moment to learn about it.
+		var gh ghResolution
+		if podCreateImage == "" && podCreateInstallID == 0 {
+			gh = resolveInstallationForRepo(client, podCreateRepo)
+			if gh.installationID > 0 {
+				req.InstallationID = &gh.installationID
+			}
+		}
+
 		if interactive() {
 			fmt.Printf("\n  %-12s %s\n", "Name", name)
 			if podCreateImage != "" {
@@ -320,6 +334,9 @@ Run with no flags on a terminal to be prompted for each value.`,
 			fmt.Printf("  Source     image %s (no build runs)\n", podCreateImage)
 		} else {
 			fmt.Printf("  Source     git %s @ %s\n", podCreateRepo, podCreateBranch)
+			if line := gh.summaryLine(); line != "" {
+				fmt.Println(line)
+			}
 		}
 		if n := len(addonIDs) - len(attachErrs); n > 0 {
 			fmt.Printf("  Addons     %d attached — credentials injected as env vars\n", n)
@@ -415,4 +432,110 @@ func expandDomain(d string) string {
 		return d
 	}
 	return d + ".usectl.com"
+}
+
+// ghResolution is the outcome of resolveInstallationForRepo, kept so the
+// post-create summary can say what happened rather than leaving the user to
+// discover it at deploy time.
+type ghResolution struct {
+	installationID int64
+	account        string // installation account login, for the summary
+	fullName       string // owner/repo, when the URL was a GitHub repo
+	private        bool   // true when the matched repo is private
+	noToken        bool   // CLI has no GitHub login at all
+	noMatch        bool   // logged in, but no installation can see the repo
+	lookupErr      error  // an API call failed; treated as "unknown", not "none"
+}
+
+// resolveInstallationForRepo finds the GitHub App installation that can see
+// repoURL, using the CLI's own GitHub login. Best-effort: every failure mode
+// is recorded on the result and none of them fails the create.
+//
+// The dashboard login does not carry over — the browser and the CLI each hold
+// their own OAuth token, and the API deliberately stores neither. That is why
+// a machine "connected to GitHub in the UI" still needs 'usectl github login'
+// before pods created here can clone private repos.
+func resolveInstallationForRepo(client *api.Client, repoURL string) ghResolution {
+	var r ghResolution
+	r.fullName = githubFullName(repoURL)
+	if r.fullName == "" {
+		return r // not a GitHub URL; nothing to resolve
+	}
+	cfg, _ := config.Load()
+	if cfg == nil || cfg.GitHubToken == "" {
+		r.noToken = true
+		return r
+	}
+	installs, err := client.ListGitHubInstallations(cfg.GitHubToken)
+	if err != nil {
+		r.lookupErr = err
+		return r
+	}
+	want := strings.ToLower(r.fullName)
+	for _, inst := range installs {
+		repos, rErr := client.ListGitHubRepos(cfg.GitHubToken, inst.ID)
+		if rErr != nil {
+			r.lookupErr = rErr
+			continue
+		}
+		for _, repo := range repos {
+			if strings.ToLower(repo.FullName) == want {
+				r.installationID = inst.ID
+				r.account = inst.Account.Login
+				r.private = repo.Private
+				r.lookupErr = nil
+				return r
+			}
+		}
+	}
+	r.noMatch = true
+	return r
+}
+
+// summaryLine renders the resolution for the create summary. Empty when there
+// is nothing worth saying (non-GitHub URL, or --installation-id was given).
+func (r ghResolution) summaryLine() string {
+	switch {
+	case r.installationID > 0:
+		vis := "public"
+		if r.private {
+			vis = "private"
+		}
+		return fmt.Sprintf("  GitHub     %s via installation %s (#%d), %s repo", r.fullName, r.account, r.installationID, vis)
+	case r.noToken:
+		return fmt.Sprintf("  ⚠ GitHub   not linked in the CLI — if %s is private, builds will be blocked.\n"+
+			"             The dashboard login does not carry over; run:  usectl github login", r.fullName)
+	case r.lookupErr != nil:
+		return fmt.Sprintf("  ⚠ GitHub   could not check installations (%v) — if %s is private, builds may be blocked", r.lookupErr, r.fullName)
+	case r.noMatch:
+		owner, _, _ := strings.Cut(r.fullName, "/")
+		return fmt.Sprintf("  ⚠ GitHub   no installation can see %s — if it is private, builds will be blocked.\n"+
+			"             Install the app on %s:  usectl github installations", r.fullName, owner)
+	}
+	return ""
+}
+
+// githubFullName returns "owner/repo" for a GitHub repository URL in any of
+// the usual spellings (https, http, ssh://git@, git@…:, .git suffix, trailing
+// slash), or "" for anything that is not a GitHub repo. Mirrors the API's own
+// derivation so the CLI and the server agree on what counts.
+func githubFullName(repoURL string) string {
+	u := strings.TrimSpace(repoURL)
+	for _, p := range []string{"https://", "http://", "ssh://"} {
+		u = strings.TrimPrefix(u, p)
+	}
+	u = strings.TrimPrefix(u, "git@")
+	u = strings.TrimPrefix(u, "www.")
+	rest, ok := strings.CutPrefix(u, "github.com/")
+	if !ok {
+		if rest, ok = strings.CutPrefix(u, "github.com:"); !ok {
+			return ""
+		}
+	}
+	rest = strings.TrimSuffix(strings.TrimSuffix(rest, "/"), ".git")
+	parts := strings.Split(rest, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
 }

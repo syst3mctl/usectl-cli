@@ -34,6 +34,7 @@ var podSettings = []podSetting{
 	{"visibility", "public|internal", "internal removes the IngressRoute; the ClusterIP Service stays", false},
 	{"replicas", "<n>", "Replica count", false},
 	{"branch", "<name>", "Git branch (repo-sourced pods)", false},
+	{"github", "auto|<installation-id>|none", "GitHub App installation used to clone the repo; 'auto' finds the one that can see it", false},
 	{"domain", "<host>", "Legacy single-domain field; prefer 'machines domains'", false},
 	{"image", "<ref>", "Prebuilt image reference; switches the pod to image source", false},
 	{"kind", "web|worker|release", "Pod kind", false},
@@ -131,6 +132,38 @@ key=value form would silently drop the ports it did not mention.`,
 				upd.Replicas = &n
 			case "branch":
 				upd.Branch = &v
+			case "github":
+				// The installation is what lets Kaniko clone a private repo.
+				// 'auto' resolves it the same way 'pods create' does — the
+				// installation that can actually see this pod's repo — which
+				// is the repair for a pod created before the CLI was logged
+				// in to GitHub, or with an installation that turned out to be
+				// the wrong account's.
+				switch strings.ToLower(v) {
+				case "auto":
+					target := podByID(client, machineID, podID)
+					if target == nil || target.RepoURL == "" {
+						return fmt.Errorf("github=auto needs a repo-sourced pod")
+					}
+					res := resolveInstallationForRepo(client, target.RepoURL)
+					if res.installationID == 0 {
+						if line := res.summaryLine(); line != "" {
+							fmt.Println(strings.TrimLeft(line, " "))
+						}
+						return fmt.Errorf("could not resolve a GitHub App installation for %s", target.RepoURL)
+					}
+					upd.InstallationID = &res.installationID
+					fmt.Printf("  GitHub     %s via installation %s (#%d)\n", res.fullName, res.account, res.installationID)
+				case "none":
+					zero := int64(0)
+					upd.InstallationID = &zero
+				default:
+					id, perr := strconv.ParseInt(v, 10, 64)
+					if perr != nil || id <= 0 {
+						return fmt.Errorf("github must be 'auto', 'none', or a numeric installation id")
+					}
+					upd.InstallationID = &id
+				}
 			case "domain":
 				upd.Domain = &v
 			case "image":
@@ -265,6 +298,7 @@ func showPodSettings(client *api.Client, machineID, podID string) error {
 		"visibility":  map[bool]string{true: "public", false: "internal"}[a.IsPublic],
 		"replicas":    strconv.Itoa(a.Replicas),
 		"branch":      orDash(a.Branch),
+		"github":      installationLabel(a.InstallationID),
 		"domain":      orDash(a.Domain),
 		"image":       orDash(a.ImageRef),
 		"kind":        orDash(a.Kind),
@@ -390,4 +424,29 @@ func podGroupName(client *api.Client, machineID string, groupID *string) string 
 		}
 	}
 	return shortID(*groupID)
+}
+
+// podByID returns the pod row for one app id, or nil.
+func podByID(client *api.Client, machineID, podID string) *api.ProjectApp {
+	apps, err := client.ListProjectApps(machineID)
+	if err != nil {
+		return nil
+	}
+	for i := range apps {
+		if apps[i].ID == podID {
+			return &apps[i]
+		}
+	}
+	return nil
+}
+
+// installationLabel renders the GitHub installation column of `pods set`.
+// "none" is spelled out rather than shown as a dash because it is the single
+// most common reason a private repo will not build, and a dash reads as
+// "nothing to see here".
+func installationLabel(id *int64) string {
+	if id == nil || *id == 0 {
+		return "none — private repos will not build; set github=auto"
+	}
+	return "#" + strconv.FormatInt(*id, 10)
 }
