@@ -265,6 +265,21 @@ Run with no flags on a terminal to be prompted for each value.`,
 		var gh ghResolution
 		if podCreateImage == "" && podCreateInstallID == 0 {
 			gh = resolveInstallationForRepo(client, podCreateRepo)
+			// No CLI login yet: offer it here, in the terminal the user is
+			// already in, rather than printing a hint they will read after
+			// the first blocked deploy. Never under --yes — a scripted run
+			// must not open a browser.
+			if gh.noToken && interactive() && !assumeYes {
+				fmt.Printf("\n  GitHub is not linked in this CLI (the dashboard login does not carry over).\n")
+				fmt.Printf("  Without it, %s cannot be cloned if it is private.\n", gh.fullName)
+				if confirm("  Log in to GitHub now?") {
+					if lerr := runGitHubLogin(client); lerr != nil {
+						fmt.Printf("  ⚠ GitHub login failed: %v — continuing without an installation\n", lerr)
+					} else {
+						gh = resolveInstallationForRepo(client, podCreateRepo)
+					}
+				}
+			}
 			if gh.installationID > 0 {
 				req.InstallationID = &gh.installationID
 			}
