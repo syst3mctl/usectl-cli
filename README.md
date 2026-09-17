@@ -311,6 +311,7 @@ from the addon and would be overwritten.
 | `usectl domains …` | Register, attach and verify domains |
 | `usectl github login\|installations\|repos\|branches` | GitHub App integration |
 | `usectl admin users …` | Admin-only user management |
+| `usectl admin knowledge sync\|status\|search` | Push the vault / docs into the knowledge base that backs `search_vault` / `search_docs` |
 | `usectl mcp serve` | MCP server over stdio for Claude Code, Cursor, Claude Desktop |
 | `usectl mcp config --client claude-code` | Print the client config / `claude mcp add` line |
 | `usectl mcp tools` | List the tools the MCP server exposes |
