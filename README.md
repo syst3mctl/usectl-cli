@@ -192,6 +192,7 @@ not.
 | `usectl machines rollback <machine> <deployment>` | Redeploy a previous image |
 | `usectl deployments diagnose <machine> [deployment]` | AI diagnosis of a failed deploy (root cause, evidence, fix) |
 | `usectl deployments triage <machine> [--enabled] [--github-comments]` | Show / change the machine's triage switches |
+| `usectl incidents list\|get\|approve\|reject\|policy` | Incidents from alerts routed to the usectl agent; approve runs the action as you |
 | `usectl machines logs <machine> [pod] [-f]` | Runtime logs |
 | `usectl machines shell <machine>` | Interactive shell in a running pod |
 | `usectl machines enter <machine>` | Sub-shell scoped to one machine |
