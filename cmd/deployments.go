@@ -87,6 +87,11 @@ var deploymentsListCmd = &cobra.Command{
 			if d.UpstreamCode != nil && *d.UpstreamCode != "" {
 				note = *d.UpstreamCode
 			}
+			if t, ok := page.Triage[d.ID]; ok && t.Status == "done" && t.Title != "" {
+				// The AI diagnosis title beats the bare status — that is
+				// the whole point of the triage worker.
+				note = t.Title
+			}
 			rows = append(rows, []string{
 				d.ID, d.Status, src, commit,
 				humanAge(d.CreatedAt), note,
@@ -150,6 +155,134 @@ image the API refuses with 410 — 'deployments list' shows those rows as
 // Takes a string because the API's deployment timestamps are carried as
 // strings on the existing type; an unparseable value renders as an em dash
 // rather than a misleading "0s".
+var deploymentsDiagnoseCmd = &cobra.Command{
+	Use:   "diagnose [machine] [deployment-id]",
+	Short: "Show the AI diagnosis of a failed deployment",
+	Long: `Prints the platform's automatic diagnosis of a failed deployment: category,
+root cause, the log lines that prove it, and what to do.
+
+Without a deployment id the machine's most recent failed deployment is used.
+A failure is diagnosed within a minute or two of failing; until then this
+reports the triage as queued or running.`,
+	Args: cobra.RangeArgs(0, 2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
+			return err
+		}
+		machineID := args[0]
+		depID := ""
+		if len(args) > 1 {
+			depID = args[1]
+		}
+		if depID == "" {
+			page, err := client.ListDeployments(machineID, "failed", "", 1, 1)
+			if err != nil {
+				return err
+			}
+			if len(page.Deployments) == 0 {
+				fmt.Println("No failed deployments.")
+				return nil
+			}
+			depID = page.Deployments[0].ID
+		}
+		t, err := client.GetDeploymentTriage(machineID, depID)
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return output.JSON(t)
+		}
+		if t.Status != "done" {
+			fmt.Printf("Deployment %s: triage %s", depID, t.Status)
+			if t.Error != nil {
+				fmt.Printf(" (%s)", *t.Error)
+			}
+			fmt.Println()
+			return nil
+		}
+		fmt.Printf("%s\n", t.Title)
+		fmt.Printf("category: %s   confidence: %.0f%%   model: %s\n\n", t.Category, t.Confidence*100, t.Model)
+		fmt.Println(t.RootCause)
+		if len(t.Evidence) > 0 {
+			fmt.Println("\nEvidence:")
+			for _, e := range t.Evidence {
+				fmt.Printf("  %s\n", e)
+			}
+		}
+		if len(t.Fix) > 0 {
+			fmt.Println("\nWhat to do:")
+			for i, f := range t.Fix {
+				fmt.Printf("  %d. %s\n", i+1, f)
+			}
+		}
+		if len(t.Actions) > 0 {
+			fmt.Println("\nSuggested usectl actions:")
+			for _, a := range t.Actions {
+				fmt.Printf("  %s %v — %s\n", a.Tool, a.Args, a.Why)
+			}
+		}
+		if t.GitHubCommentURL != nil {
+			fmt.Printf("\nPR comment: %s\n", *t.GitHubCommentURL)
+		}
+		return nil
+	},
+}
+
+var deploymentsTriageCmd = &cobra.Command{
+	Use:   "triage [machine]",
+	Short: "Show or change the machine's AI failure-triage settings",
+	Args:  cobra.RangeArgs(0, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := api.NewClient(apiURL)
+		if err != nil {
+			return err
+		}
+		if args, err = resolveFirstArg(client, args); err != nil {
+			return err
+		}
+		parse := func(flag string) (*bool, error) {
+			v, _ := cmd.Flags().GetString(flag)
+			switch v {
+			case "":
+				return nil, nil
+			case "true", "on", "yes":
+				b := true
+				return &b, nil
+			case "false", "off", "no":
+				b := false
+				return &b, nil
+			}
+			return nil, fmt.Errorf("--%s must be true or false", flag)
+		}
+		enabled, err := parse("enabled")
+		if err != nil {
+			return err
+		}
+		gh, err := parse("github-comments")
+		if err != nil {
+			return err
+		}
+		var s *api.TriageSettings
+		if enabled != nil || gh != nil {
+			s, err = client.PutTriageSettings(args[0], enabled, gh)
+		} else {
+			s, err = client.GetTriageSettings(args[0])
+		}
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return output.JSON(s)
+		}
+		fmt.Printf("AI triage: %v\nPR comments: %v\n", s.Enabled, s.GitHubComments)
+		return nil
+	},
+}
+
 func humanAge(iso string) string {
 	if iso == "" {
 		return "—"
@@ -180,6 +313,8 @@ func init() {
 	deploymentsRollbackCmd.Flags().StringVar(&rollbackReason, "reason", "", "Reason recorded on the rollback")
 	deploymentsRollbackCmd.Flags().BoolVarP(&rollbackYes, "yes", "y", false, "Skip the confirmation prompt")
 
-	deploymentsCmd.AddCommand(deploymentsListCmd, deploymentsRollbackCmd)
+	deploymentsCmd.AddCommand(deploymentsListCmd, deploymentsRollbackCmd, deploymentsDiagnoseCmd, deploymentsTriageCmd)
+	deploymentsTriageCmd.Flags().String("enabled", "", "turn AI triage on/off for the machine (true|false)")
+	deploymentsTriageCmd.Flags().String("github-comments", "", "post the diagnosis as a PR comment (true|false)")
 	rootCmd.AddCommand(deploymentsCmd)
 }

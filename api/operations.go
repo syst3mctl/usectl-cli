@@ -15,10 +15,13 @@ import (
 // DeploymentPage is one page of deployment history.
 type DeploymentPage struct {
 	Deployments []Deployment `json:"deployments"`
-	Total       int          `json:"total"`
-	Page        int          `json:"page"`
-	PerPage     int          `json:"per_page"`
-	TotalPages  int          `json:"total_pages"`
+	// Triage holds the failed-deploy diagnosis summary per deployment id
+	// (mig 077); absent for rows that were never diagnosed.
+	Triage     map[string]TriageSummary `json:"triage,omitempty"`
+	Total      int                      `json:"total"`
+	Page       int                      `json:"page"`
+	PerPage    int                      `json:"per_page"`
+	TotalPages int                      `json:"total_pages"`
 }
 
 // ListDeployments returns a machine's deployment history, newest first.
@@ -191,4 +194,73 @@ func (c *Client) CreateProjectGroup(projectID, name, color string, sortOrder *in
 // cannot be renamed. Delete, recreate, and reassign members.
 func (c *Client) DeleteProjectGroup(projectID, groupID string) error {
 	return c.Delete(fmt.Sprintf("/api/projects/%s/groups/%s", projectID, groupID), nil)
+}
+
+// ── Failed-deploy triage (mig 077) ─────────────────────────────────────
+
+// TriageSummary is the per-row summary the deployments list carries.
+type TriageSummary struct {
+	Status     string  `json:"status"`
+	Category   string  `json:"category"`
+	Title      string  `json:"title"`
+	Confidence float64 `json:"confidence"`
+}
+
+// TriageAction is a suggested follow-up expressed as an agent tool call.
+type TriageAction struct {
+	Tool string                 `json:"tool"`
+	Args map[string]interface{} `json:"args,omitempty"`
+	Why  string                 `json:"why,omitempty"`
+}
+
+// DeploymentTriage is the full diagnosis of one failed deployment.
+type DeploymentTriage struct {
+	DeploymentID     string         `json:"deployment_id"`
+	Status           string         `json:"status"`
+	Category         string         `json:"category"`
+	Title            string         `json:"title"`
+	RootCause        string         `json:"root_cause"`
+	Evidence         []string       `json:"evidence"`
+	Fix              []string       `json:"fix"`
+	Actions          []TriageAction `json:"usectl_actions"`
+	Confidence       float64        `json:"confidence"`
+	Model            string         `json:"model"`
+	DurationMs       int            `json:"duration_ms"`
+	GitHubCommentURL *string        `json:"github_comment_url,omitempty"`
+	Error            *string        `json:"error,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
+}
+
+// GetDeploymentTriage returns the diagnosis, or an API 404 when none exists.
+func (c *Client) GetDeploymentTriage(projectID, deploymentID string) (*DeploymentTriage, error) {
+	var t DeploymentTriage
+	if err := c.Get(fmt.Sprintf("/api/projects/%s/deployments/%s/triage", projectID, deploymentID), &t); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// TriageSettings are the per-machine switches.
+type TriageSettings struct {
+	Enabled        bool `json:"enabled"`
+	GitHubComments bool `json:"github_comments"`
+}
+
+func (c *Client) GetTriageSettings(projectID string) (*TriageSettings, error) {
+	var s TriageSettings
+	err := c.Get(fmt.Sprintf("/api/projects/%s/triage-settings", projectID), &s)
+	return &s, err
+}
+
+func (c *Client) PutTriageSettings(projectID string, enabled, githubComments *bool) (*TriageSettings, error) {
+	body := map[string]interface{}{}
+	if enabled != nil {
+		body["enabled"] = *enabled
+	}
+	if githubComments != nil {
+		body["github_comments"] = *githubComments
+	}
+	var s TriageSettings
+	err := c.Put(fmt.Sprintf("/api/projects/%s/triage-settings", projectID), body, &s)
+	return &s, err
 }

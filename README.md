@@ -190,6 +190,8 @@ not.
 | `usectl machines deployments <machine> [pod]` | Deployment history |
 | `usectl machines build-logs <machine> <deployment>` | Build logs (short ids accepted) |
 | `usectl machines rollback <machine> <deployment>` | Redeploy a previous image |
+| `usectl deployments diagnose <machine> [deployment]` | AI diagnosis of a failed deploy (root cause, evidence, fix) |
+| `usectl deployments triage <machine> [--enabled] [--github-comments]` | Show / change the machine's triage switches |
 | `usectl machines logs <machine> [pod] [-f]` | Runtime logs |
 | `usectl machines shell <machine>` | Interactive shell in a running pod |
 | `usectl machines enter <machine>` | Sub-shell scoped to one machine |
