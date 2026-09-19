@@ -178,7 +178,7 @@ func incidentActionCmd(verb string) *cobra.Command {
 var incidentsPolicyCmd = &cobra.Command{
 	Use:   "policy [machine]",
 	Short: "Show or change whether the agent may act on its own",
-	Long: `Modes: notify (summarise only, default), approve (actions wait for a human),
+	Long: `Modes: notify (summarise only), approve (default — actions wait for a human),
 auto (the agent executes allowed actions itself when every guard passes:
 confidence, allowlist, daily budget, cooldown, and for rollback a correlated
 deployment under an hour old with an intact previous image).`,
