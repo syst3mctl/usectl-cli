@@ -14,6 +14,8 @@ import (
 
 var loginPassword bool
 
+var loginToken string
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with the usectl platform",
@@ -38,6 +40,27 @@ and in CI, where nothing can click Approve.`,
 		}
 		if base == "" {
 			base = config.DefaultAPIURL
+		}
+		// --token: run this CLI under a scoped agent key (CI, servers). No
+		// refresh token — when the key expires or is revoked, log in again.
+		if loginToken != "" {
+			if !strings.HasPrefix(loginToken, api.AgentTokenPrefix) {
+				return fmt.Errorf("--token expects an agent key (usectl_agt_…) from 'usectl tokens create'")
+			}
+			cfg, _ := config.Load()
+			if cfg == nil {
+				cfg = &config.Config{}
+			}
+			cfg.Token, cfg.RefreshToken, cfg.APIURL = loginToken, "", base
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+			client, _ := api.NewClient(apiURL)
+			if _, err := client.GetProfile(); err != nil {
+				return fmt.Errorf("key rejected: %w", err)
+			}
+			fmt.Println("✓ Logged in with an agent key. Its scope applies to every command; there is no refresh.")
+			return nil
 		}
 
 		// The browser flow needs a browser AND someone to click Approve, so
@@ -200,6 +223,7 @@ func init() {
 	profileCmd.AddCommand(profileUpdateCmd)
 
 	loginCmd.Flags().BoolVar(&loginPassword, "password", false, "Sign in with email and password instead of the browser")
+	loginCmd.Flags().StringVar(&loginToken, "token", "", "Use a scoped agent key (usectl_agt_…) as this CLI's credential")
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(registerCmd)
 	rootCmd.AddCommand(profileCmd)

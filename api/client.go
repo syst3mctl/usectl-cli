@@ -1,6 +1,8 @@
 package api
 
 import (
+	"strings"
+	"os"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -40,10 +42,19 @@ func NewClient(apiURLOverride string) (*Client, error) {
 		baseURL = apiURLOverride
 	}
 
+	token, refresh := cfg.Token, cfg.RefreshToken
+	// USECTL_TOKEN (an agent key, or any bearer) overrides the saved session
+	// — what CI and MCP configs use so nothing has to be written to disk.
+	if env := strings.TrimSpace(os.Getenv("USECTL_TOKEN")); env != "" {
+		token, refresh = env, ""
+	}
+	if strings.HasPrefix(token, AgentTokenPrefix) {
+		refresh = "" // agent keys have no refresh token; a 401 is final
+	}
 	return &Client{
 		BaseURL:      baseURL,
-		Token:        cfg.Token,
-		RefreshToken: cfg.RefreshToken,
+		Token:        token,
+		RefreshToken: refresh,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},

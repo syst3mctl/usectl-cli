@@ -63,7 +63,7 @@ var mcpServeCmd = &cobra.Command{
 			return err
 		}
 		if client.Token == "" {
-			return fmt.Errorf("not logged in — run 'usectl login' first")
+			return fmt.Errorf("not logged in — run 'usectl login', or set USECTL_TOKEN to an agent key (usectl tokens create)")
 		}
 		client.SetTimeout(60 * time.Second)
 
@@ -166,14 +166,19 @@ var mcpConfigCmd = &cobra.Command{
 
   usectl mcp config                      # generic mcpServers block
   usectl mcp config --client claude-code # the one-line 'claude mcp add' command
-  usectl mcp config --read-only          # server hides state-changing tools`,
+  usectl mcp config --read-only          # server hides state-changing tools
+  usectl mcp config --token usectl_agt_… # use a scoped agent key instead of the 24h session`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		if cfg.Token == "" {
-			fmt.Fprintln(os.Stderr, "warning: not logged in — run 'usectl login' before the server can start")
+		mcpToken, _ := cmd.Flags().GetString("token")
+		if mcpToken == "" && cfg.Token == "" {
+			fmt.Fprintln(os.Stderr, "warning: not logged in — run 'usectl login' or pass --token (usectl tokens create) before the server can start")
+		}
+		if mcpToken != "" && !strings.HasPrefix(mcpToken, api.AgentTokenPrefix) {
+			fmt.Fprintln(os.Stderr, "warning: --token is not an agent key (usectl_agt_…); a session token expires in 24h")
 		}
 		exe, _ := os.Executable()
 		if exe == "" {
@@ -193,12 +198,22 @@ var mcpConfigCmd = &cobra.Command{
 		client, _ := cmd.Flags().GetString("client")
 		switch client {
 		case "claude-code":
-			fmt.Printf("claude mcp add usectl -- %s %s\n", exe, strings.Join(srvArgs, " "))
+			if mcpToken != "" {
+				fmt.Printf("claude mcp add usectl -e USECTL_TOKEN=%s -- %s %s\n", mcpToken, exe, strings.Join(srvArgs, " "))
+			} else {
+				fmt.Printf("claude mcp add usectl -- %s %s\n", exe, strings.Join(srvArgs, " "))
+			}
 			return nil
 		case "claude-desktop", "cursor", "":
+			server := map[string]any{"command": exe, "args": srvArgs}
+			if mcpToken != "" {
+				// The key rides in the environment, so the config file never
+				// needs the session token and never expires with it.
+				server["env"] = map[string]string{"USECTL_TOKEN": mcpToken}
+			}
 			block := map[string]any{
 				"mcpServers": map[string]any{
-					"usectl": map[string]any{"command": exe, "args": srvArgs},
+					"usectl": server,
 				},
 			}
 			data, _ := json.MarshalIndent(block, "", "  ")
@@ -284,5 +299,6 @@ func init() {
 	}
 	mcpServeCmd.Flags().StringVar(&mcpMachine, "machine", "", "pin every tool to one machine (also USECTL_MCP_MACHINE)")
 	mcpConfigCmd.Flags().StringVar(&mcpMachine, "machine", "", "pin the configured server to one machine")
+	mcpConfigCmd.Flags().String("token", "", "Agent key (usectl_agt_…) to embed as USECTL_TOKEN instead of the 24h session")
 	mcpConfigCmd.Flags().String("client", "", "target client: claude-code, claude-desktop, cursor")
 }
