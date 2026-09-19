@@ -87,6 +87,16 @@ var deploymentsListCmd = &cobra.Command{
 			if d.UpstreamCode != nil && *d.UpstreamCode != "" {
 				note = *d.UpstreamCode
 			}
+			if d.Status == "queued" && d.QueueAhead != nil {
+				if *d.QueueAhead == 0 {
+					note = "next in the build queue"
+				} else {
+					note = fmt.Sprintf("%d build(s) ahead", *d.QueueAhead)
+				}
+			}
+			if d.Status == "cancelled" && d.ReplacedByDeploymentID != nil {
+				note = "superseded by a newer deploy"
+			}
 			if t, ok := page.Triage[d.ID]; ok && t.Status == "done" && t.Title != "" {
 				// The AI diagnosis title beats the bare status — that is
 				// the whole point of the triage worker.

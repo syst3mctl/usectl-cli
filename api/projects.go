@@ -114,6 +114,11 @@ type Deployment struct {
 	// (USCT-178/189) — e.g. service "registry", code "registry_misconfigured".
 	UpstreamService *string `json:"upstream_service,omitempty"`
 	UpstreamCode    *string `json:"upstream_code,omitempty"`
+	// QueueAhead is set for status=queued rows: builds ahead of this one in
+	// the platform build queue.
+	QueueAhead *int `json:"queue_ahead,omitempty"`
+	// ReplacedByDeploymentID on a cancelled row = superseded by that newer deploy.
+	ReplacedByDeploymentID *string `json:"replaced_by_deployment_id,omitempty"`
 	// ImagePrunedAt is set when retention reclaimed this deployment's image
 	// (mig 067). Non-nil means rollback here is no longer possible.
 	ImagePrunedAt *string `json:"image_pruned_at,omitempty"`
