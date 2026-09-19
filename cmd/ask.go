@@ -29,7 +29,7 @@ answers in plain language. It cannot change anything itself: when a change is
 the fix, it proposes it and you approve it here.
 
   usectl ask "why is my last deploy failing?" -m my-api
-  usectl ask "restart the web pod" -m my-api        # → proposal → [y/N]
+  usectl ask "restart the web pod" my-api           # machine may also be the last argument
   usectl ask "how do I add a custom domain?"        # no machine: product question`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -39,12 +39,24 @@ the fix, it proposes it and you approve it here.
 		}
 		question := strings.Join(args, " ")
 		projectID := ""
-		if m := firstNonEmptyStr(askMachine, machineFlag, os.Getenv("USECTL_MACHINE")); m != "" {
+		m := firstNonEmptyStr(askMachine, machineFlag, os.Getenv("USECTL_MACHINE"))
+		// `usectl ask "question" my-api` — a single trailing word that names a
+		// machine is the machine, not part of the question.
+		if m == "" && len(args) >= 2 && !strings.ContainsAny(args[len(args)-1], " ?!") {
+			if id, err := resolveMachine(client, args[len(args)-1]); err == nil {
+				projectID = id
+				question = strings.Join(args[:len(args)-1], " ")
+			}
+		}
+		if projectID == "" && m != "" {
 			id, err := resolveMachine(client, m)
 			if err != nil {
 				return err
 			}
 			projectID = id
+		}
+		if projectID == "" {
+			fmt.Fprintln(os.Stderr, "(no machine — answering as a general question; add -m <machine> or the machine name last to inspect one)")
 		}
 		conv := uuid.NewString()
 		var pending []api.CopilotAction
