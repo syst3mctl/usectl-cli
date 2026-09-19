@@ -113,12 +113,12 @@ func (c *Client) RemoveProjectAddonByID(projectID, addonID string) error {
 }
 
 func (c *Client) ToggleAddonUI(projectID, addonType string, enable bool) error {
-	body := map[string]bool{"ui_enabled": enable}
+	body := map[string]bool{"enabled": enable}
 	return c.Put(fmt.Sprintf("/api/projects/%s/addons/%s/ui", projectID, addonType), body, nil)
 }
 
 func (c *Client) ToggleAddonUIByID(projectID, addonID string, enable bool) error {
-	body := map[string]bool{"ui_enabled": enable}
+	body := map[string]bool{"enabled": enable}
 	return c.Put(fmt.Sprintf("/api/projects/%s/addons/by-id/%s/ui", projectID, addonID), body, nil)
 }
 
