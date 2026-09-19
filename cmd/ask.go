@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/giorgi/usectl/api"
@@ -94,7 +95,16 @@ the fix, it proposes it and you approve it here.
 				fmt.Printf("  %s\n", p.Why)
 			}
 			if len(p.Args) > 0 {
-				fmt.Printf("  args: %v\n", p.Args)
+				keys := make([]string, 0, len(p.Args))
+				for k := range p.Args {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				parts := make([]string, 0, len(keys))
+				for _, k := range keys {
+					parts = append(parts, fmt.Sprintf("%s=%v", k, p.Args[k]))
+				}
+				fmt.Printf("  %s\n", strings.Join(parts, "  "))
 			}
 			approve := askYes
 			if !approve {
