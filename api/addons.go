@@ -148,3 +148,37 @@ func (c *Client) MoveAddonGroup(projectID, addonID, groupID, pvcAction string) e
 	}
 	return c.Post(fmt.Sprintf("/api/projects/%s/addons/%s/move-group", projectID, addonID), body, nil)
 }
+
+// NATSAuthRules mirrors the backend's deployer.NATSAuthRules.
+type NATSAuthRules struct {
+	Subscribe         []string `json:"subscribe"`
+	Publish           []string `json:"publish"`
+	Inbox             bool     `json:"inbox"`
+	MaxSessionSeconds int64    `json:"max_session_seconds"`
+}
+
+type NATSAuthUpdate struct {
+	Mode           string         `json:"mode"`
+	ValidatorAppID string         `json:"validator_app_id,omitempty"`
+	Path           string         `json:"path,omitempty"`
+	Port           int            `json:"port,omitempty"`
+	Rules          *NATSAuthRules `json:"rules,omitempty"`
+}
+
+type NATSAuthResult struct {
+	Mode              string `json:"mode"`
+	Message           string `json:"message"`
+	ValidatorAttached *bool  `json:"validator_attached,omitempty"`
+	ValidatorURL      string `json:"validator_url,omitempty"`
+}
+
+// UpdateNATSAuth sets how WebSocket clients of a dedicated NATS authenticate:
+// "password", "readonly" or "callout" (per-user, validated by one of the
+// machine's pods).
+func (c *Client) UpdateNATSAuth(projectID, addonID string, body NATSAuthUpdate) (*NATSAuthResult, error) {
+	var out NATSAuthResult
+	if err := c.Put(fmt.Sprintf("/api/projects/%s/addons/by-id/%s/nats-auth", projectID, addonID), body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

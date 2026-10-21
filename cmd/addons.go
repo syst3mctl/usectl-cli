@@ -52,6 +52,7 @@ Subcommands:
   remove       Deprovision an addon
   ui           Toggle the addon's admin UI (pgAdmin, Redis Commander, ...)
   config       Patch behavioural config (e.g. NATS_WS_*)
+  nats-auth    How WebSocket clients of a dedicated NATS log in (password / read-only / per-user)
   start/stop   Scale a dedicated addon to 0 and back`,
 }
 
