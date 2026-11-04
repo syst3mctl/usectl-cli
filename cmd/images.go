@@ -21,9 +21,10 @@ import (
 // terminals it also serves.
 
 var (
-	imagePushTag  string
-	imagePushFile string
-	imagePushKeep bool
+	imagePushTag       string
+	imagePushFile      string
+	imagePushKeep      bool
+	imagePushForceArch bool
 )
 
 var imagesCmd = &cobra.Command{
@@ -41,9 +42,17 @@ storage, and asks the platform to move it into the registry. You never handle
 registry credentials — the push happens inside the cluster.
 
 The app must be image-sourced (usectl machines pods create --image, or
-usectl machines pods set <pod> image=<ref>).`,
-	Example: `  # Build locally, then ship it
-  docker build -t myapi:v3 .
+usectl machines pods set <pod> image=<ref>).
+
+Every cluster node is linux/amd64. An image built on Apple Silicon is arm64 by
+default and dies on start with "exec format error", so build with:
+
+  docker build --platform linux/amd64 -t myapi:v3 .
+
+The push refuses an image whose architecture is not amd64 (checked with
+'docker image inspect'); --force-arch skips the check.`,
+	Example: `  # Build locally for the cluster's architecture, then ship it
+  docker build --platform linux/amd64 -t myapi:v3 .
   usectl images push a8f15889 web-app-id myapi:v3
 
   # Tag it explicitly in the platform registry
@@ -70,6 +79,11 @@ usectl machines pods set <pod> image=<ref>).`,
 				return fmt.Errorf("provide a local image name, or --file with an existing tar")
 			}
 			localImage := args[2]
+			if !imagePushForceArch {
+				if err := checkImageArch(localImage); err != nil {
+					return err
+				}
+			}
 			// docker save writes to a temp file rather than a pipe: the
 			// presigned PUT is signed for an exact content length, so the
 			// size has to be known before the upload starts.
@@ -151,7 +165,10 @@ usectl machines pods set <pod> image=<ref>).`,
 		fmt.Printf("✓ %s\n", res.Message)
 		fmt.Printf("  Image: %s\n", res.ImageRef)
 		fmt.Printf("  Job:   %s\n", res.Job)
-		fmt.Printf("\n  Deploy it:\n    usectl machines deploy %s\n", projectID)
+		// The server deploys the image itself once the push Job succeeds, so
+		// the old "Deploy it: machines deploy <m>" hint pointed at a command
+		// that skipped image pods and did nothing.
+		fmt.Printf("\n  The pod is redeployed automatically once the push finishes. Watch it:\n    usectl machines deployments %s\n", projectID)
 		return nil
 	},
 }
@@ -173,6 +190,7 @@ func init() {
 	imagesPushCmd.Flags().StringVar(&imagePushTag, "tag", "", "Tag to use in the platform registry (default: the local tag, else a timestamp)")
 	imagesPushCmd.Flags().StringVar(&imagePushFile, "file", "", "Upload an existing tar instead of running docker save")
 	imagesPushCmd.Flags().BoolVar(&imagePushKeep, "keep-tar", false, "Keep the temporary tar produced by docker save")
+	imagesPushCmd.Flags().BoolVar(&imagePushForceArch, "force-arch", false, "Push even if the image is not linux/amd64")
 	imagesCmd.AddCommand(imagesPushCmd)
 	rootCmd.AddCommand(imagesCmd)
 }
@@ -185,4 +203,24 @@ func isTTY() bool {
 		return false
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// checkImageArch refuses an image that is not linux/amd64 before minutes are
+// spent saving and uploading it. Every node is amd64; an arm64 image from an
+// Apple Silicon build passes the push, deploys, and then every pod dies with
+// "exec format error" — a failure far from its cause. If docker can't answer
+// (an inspect error, an unusual setup) the check stays out of the way and
+// docker save reports the real problem.
+func checkImageArch(image string) error {
+	out, err := exec.Command("docker", "image", "inspect", "--format", "{{.Os}}/{{.Architecture}}", image).Output()
+	if err != nil {
+		return nil
+	}
+	platform := strings.TrimSpace(string(out))
+	if platform == "" || platform == "linux/amd64" {
+		return nil
+	}
+	return fmt.Errorf("%s is built for %s, but every cluster node is linux/amd64 — its pods would fail with \"exec format error\".\n"+
+		"Rebuild it with:  docker build --platform linux/amd64 -t %s .\n"+
+		"(or pass --force-arch to push it anyway)", image, platform, image)
 }

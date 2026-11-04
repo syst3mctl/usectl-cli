@@ -359,7 +359,8 @@ Run with no flags on a terminal to be prompted for each value.`,
 		for _, e := range attachErrs {
 			fmt.Printf("  ⚠ addon attach failed — %s\n", e)
 		}
-		fmt.Printf("\nDeploy it:\n  usectl machines deploy %s\n", args[0])
+		// Name the pod: a machine-wide deploy also rolls every other pod.
+		fmt.Printf("\nDeploy it:\n  usectl machines deploy %s %s\n", args[0], name)
 		return nil
 	},
 }

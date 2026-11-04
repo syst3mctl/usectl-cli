@@ -126,6 +126,10 @@ type UpdateProjectAppRequest struct {
 	Kind              *string  `json:"kind,omitempty"`
 	Command           *string  `json:"command,omitempty"`
 	Args              []string `json:"args,omitempty"`
+	// Graceful shutdown (server mig 090). Grace -1 = Kubernetes default (30s);
+	// PrestopCommand "" clears the hook. Applied on the pod's next deploy.
+	TerminationGraceSeconds *int    `json:"termination_grace_seconds,omitempty"`
+	PrestopCommand          *string `json:"prestop_command,omitempty"`
 	// mig 059: nil = leave unchanged; non-nil (incl. empty) replaces the
 	// extra-port list wholesale.
 	ExtraPorts *[]AppPort `json:"extra_ports,omitempty"`

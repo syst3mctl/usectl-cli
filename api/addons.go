@@ -25,10 +25,13 @@ type ProjectAddon struct {
 	// (e.g. "runbyagents-postgres"), supplied by the API so a client can map
 	// the addon to its pods without guessing at the naming scheme. Empty for
 	// managed addons, which have no pods of their own.
-	WorkloadName string  `json:"workload_name,omitempty"`
-	GroupID      *string `json:"group_id,omitempty"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	WorkloadName string `json:"workload_name,omitempty"`
+	// Instances is how many copies actually run (a replicated Postgres runs
+	// 2, each at the full size). Older servers omit it.
+	Instances int     `json:"instances,omitempty"`
+	GroupID   *string `json:"group_id,omitempty"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 type AddonCatalogEntry struct {
@@ -103,13 +106,24 @@ func (c *Client) AddProjectAddon(projectID string, req AddProjectAddonRequest) (
 }
 
 // RemoveProjectAddon removes by addon type (targets the primary instance).
-func (c *Client) RemoveProjectAddon(projectID, addonType string) error {
-	return c.Delete(fmt.Sprintf("/api/projects/%s/addons/%s", projectID, addonType), nil)
+//
+// A dedicated Postgres takes a final backup before it is deleted (when it has
+// a backup schedule) and the removal is refused if that backup fails.
+// skipFinalBackup opts out — the data is then gone for good.
+func (c *Client) RemoveProjectAddon(projectID, addonType string, skipFinalBackup bool) error {
+	return c.Delete(fmt.Sprintf("/api/projects/%s/addons/%s%s", projectID, addonType, removeAddonQuery(skipFinalBackup)), nil)
 }
 
 // RemoveProjectAddonByID removes a specific addon row by its UUID.
-func (c *Client) RemoveProjectAddonByID(projectID, addonID string) error {
-	return c.Delete(fmt.Sprintf("/api/projects/%s/addons/by-id/%s", projectID, addonID), nil)
+func (c *Client) RemoveProjectAddonByID(projectID, addonID string, skipFinalBackup bool) error {
+	return c.Delete(fmt.Sprintf("/api/projects/%s/addons/by-id/%s%s", projectID, addonID, removeAddonQuery(skipFinalBackup)), nil)
+}
+
+func removeAddonQuery(skipFinalBackup bool) string {
+	if skipFinalBackup {
+		return "?skip_final_backup=true"
+	}
+	return ""
 }
 
 func (c *Client) ToggleAddonUI(projectID, addonType string, enable bool) error {
@@ -175,6 +189,19 @@ type NATSAuthResult struct {
 // UpdateNATSAuth sets how WebSocket clients of a dedicated NATS authenticate:
 // "password", "readonly" or "callout" (per-user, validated by one of the
 // machine's pods).
+// GetAddonCredentials returns the real values of an addon's secret config
+// keys. Every other addon response masks them. Developer role or above;
+// the server audits each call.
+func (c *Client) GetAddonCredentials(projectID, addonID string) (map[string]string, error) {
+	var out struct {
+		Credentials map[string]string `json:"credentials"`
+	}
+	if err := c.Get(fmt.Sprintf("/api/projects/%s/addons/by-id/%s/credentials", projectID, addonID), &out); err != nil {
+		return nil, err
+	}
+	return out.Credentials, nil
+}
+
 func (c *Client) UpdateNATSAuth(projectID, addonID string, body NATSAuthUpdate) (*NATSAuthResult, error) {
 	var out NATSAuthResult
 	if err := c.Put(fmt.Sprintf("/api/projects/%s/addons/by-id/%s/nats-auth", projectID, addonID), body, &out); err != nil {

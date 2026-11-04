@@ -153,10 +153,23 @@ The addon may be named by its instance name, its type, or "type/name".`,
 			return fmt.Errorf("addon %s not found in this machine", addonID)
 		}
 
+		// The API masks credentials in every addon response. --reveal fetches
+		// the real values from the audited credentials endpoint (developer
+		// role or above) and puts them back before printing or JSON output.
+		if addonGetReveal {
+			creds, cErr := client.GetAddonCredentials(machineID, a.ID)
+			if cErr != nil {
+				return fmt.Errorf("reveal credentials: %w", cErr)
+			}
+			if a.Config == nil {
+				a.Config = map[string]string{}
+			}
+			for k, v := range creds {
+				a.Config[k] = v
+			}
+		}
+
 		if jsonOutput {
-			// The JSON path returns the addon verbatim, secrets included: a
-			// caller piping to jq has asked for the data, and masking would
-			// make the output useless for automation.
 			return output.JSON(a)
 		}
 
@@ -200,7 +213,7 @@ func printAddonDetail(a *api.ProjectAddon, instances []api.NamespacePod, attache
 		if a.IsStopped {
 			state = "stopped (scaled to 0; PVC preserved)"
 		}
-		fmt.Printf("  %-14s %d replica(s), %s\n", "scale", a.Replicas, state)
+		fmt.Printf("  %-14s %s, %s\n", "scale", addonInstancesText(*a), state)
 	}
 	if len(attachedTo) > 0 {
 		sort.Strings(attachedTo)
@@ -442,6 +455,11 @@ func addonSizeCol(a api.ProjectAddon) string {
 	}
 	if sz, ok := m["size"].(map[string]any); ok {
 		if name, _ := sz["name"].(string); name != "" {
+			// A replicated Postgres runs the preset once per instance, so
+			// "small" alone understated its footprint by half.
+			if a.Instances > 1 {
+				return fmt.Sprintf("%s ×%d", name, a.Instances)
+			}
 			return name
 		}
 	}
@@ -449,6 +467,22 @@ func addonSizeCol(a api.ProjectAddon) string {
 		return fmt.Sprintf("%gGB", g)
 	}
 	return "—"
+}
+
+// addonInstancesText describes how many copies of a dedicated addon run.
+// Servers that report `instances` are authoritative: `replicas` read 1 for a
+// replicated Postgres that was running two full-size instances.
+func addonInstancesText(a api.ProjectAddon) string {
+	if a.Instances > 0 {
+		if a.AddonType == "database" && a.Instances > 1 {
+			return fmt.Sprintf("%d instances (failover — each at the full size)", a.Instances)
+		}
+		if a.Instances == 1 {
+			return "1 instance"
+		}
+		return fmt.Sprintf("%d instances", a.Instances)
+	}
+	return fmt.Sprintf("%d replica(s)", a.Replicas)
 }
 
 func addonVersionCol(a api.ProjectAddon) string {

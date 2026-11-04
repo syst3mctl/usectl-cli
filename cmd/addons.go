@@ -276,11 +276,45 @@ var addonsRemoveCmd = &cobra.Command{
 		args = append([]string{machineID, addonID}, rest...)
 		// Heuristic: if it looks like a UUID, hit by-id. Otherwise treat as type.
 		ident := args[1]
+
+		// This used to delete on the spot. For a database that means its
+		// data — a CNPG cluster's volumes are deleted with it — so confirm
+		// the same way `machines delete` does, naming what will be lost.
+		if !assumeYes {
+			label, what := ident, "this addon"
+			if addons, lerr := client.ListProjectAddons(args[0]); lerr == nil {
+				for _, a := range addons {
+					if a.ID == ident || (a.AddonType == ident && (a.Name == "" || a.Name == "primary")) {
+						label = a.AddonType
+						if a.Name != "" && a.Name != "primary" {
+							label = a.Name
+						}
+						what = fmt.Sprintf("%s addon %q (%s)", a.Mode, label, a.AddonType)
+						break
+					}
+				}
+			}
+			if !interactive() {
+				return fmt.Errorf("refusing to remove %s without confirmation — pass --yes to proceed non-interactively", what)
+			}
+			fmt.Printf("This permanently removes %s:\n", what)
+			fmt.Println("  · its data — a database's volumes are deleted with it")
+			fmt.Println("  · its connection to every pod it is attached to (re-adding does not restore them)")
+			if addonsRemoveSkipBackup {
+				fmt.Println("  · WITHOUT a final backup (--skip-final-backup)")
+			} else {
+				fmt.Println("  A dedicated Postgres with a backup schedule gets one final backup first.")
+			}
+			if ans := ask("Type the addon name to confirm", ""); ans != label {
+				return fmt.Errorf("cancelled — %q does not match %q", ans, label)
+			}
+		}
+
 		var rerr error
 		if looksLikeUUID(ident) {
-			rerr = client.RemoveProjectAddonByID(args[0], ident)
+			rerr = client.RemoveProjectAddonByID(args[0], ident, addonsRemoveSkipBackup)
 		} else {
-			rerr = client.RemoveProjectAddon(args[0], ident)
+			rerr = client.RemoveProjectAddon(args[0], ident, addonsRemoveSkipBackup)
 		}
 		if rerr != nil {
 			return rerr
@@ -289,6 +323,8 @@ var addonsRemoveCmd = &cobra.Command{
 		return nil
 	},
 }
+
+var addonsRemoveSkipBackup bool
 
 var (
 	addonUIEnable  bool
@@ -479,6 +515,8 @@ func init() {
 	addonsAddCmd.Flags().StringVar(&addonAddRawConfig, "config", "", "Raw JSON merged into dedicated_config")
 	addonsAddCmd.Flags().StringVar(&addonAddBackup, "backup-schedule", "", "Automated backup cron, 5 fields (dedicated database only)")
 	addonsAddCmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Do not prompt; fail instead if a required value is missing")
+	addonsRemoveCmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Remove without the confirmation prompt")
+	addonsRemoveCmd.Flags().BoolVar(&addonsRemoveSkipBackup, "skip-final-backup", false, "Delete a dedicated database without taking a final backup first")
 	// --type is NOT MarkFlagRequired: cobra enforces that before RunE, which
 	// would block the interactive catalogue picker. The requirement is checked
 	// inside RunE instead, where non-interactive callers still get a clear

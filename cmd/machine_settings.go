@@ -40,7 +40,7 @@ values.
 
 Repository, branch, domain, port and container sizing are NOT here — they are
 per-pod settings. Use 'usectl machines pods set' for those, and
-'usectl machines quota' to change vCPU/RAM/storage.`,
+'usectl machines resize' to change vCPU/RAM/storage.`,
 	Example: `  usectl machines settings api
   usectl machines settings api preview-envs=true
   usectl machines settings api name=api-v2`,

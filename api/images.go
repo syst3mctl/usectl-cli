@@ -36,6 +36,9 @@ type ImagePushResult struct {
 	Job      string `json:"job"`
 	ImageRef string `json:"image_ref"`
 	Size     int64  `json:"size"`
+	// AutoDeploy is true when the server rolls the pod out itself once the
+	// push lands — every current server does. Older servers omit it.
+	AutoDeploy bool `json:"auto_deploy,omitempty"`
 }
 
 // StartImageUpload opens a multipart upload and returns the chunking plan.

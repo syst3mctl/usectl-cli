@@ -145,8 +145,9 @@ admin approval before you can log in (depends on platform configuration).`,
 }
 
 var profileCmd = &cobra.Command{
-	Use:   "profile",
-	Short: "View your user profile (ID, username, email, role)",
+	Use:     "profile",
+	Aliases: []string{"whoami"},
+	Short:   "View your user profile (ID, username, email, role)",
 	Example: `  usectl profile
   usectl profile --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {

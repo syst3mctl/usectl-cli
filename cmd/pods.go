@@ -173,59 +173,60 @@ var (
 )
 
 var podsShellCmd = &cobra.Command{
-	Use:   "shell <machine-id>",
+	Use:   "shell [machine] [pod]",
 	Short: "Open an interactive /bin/sh into a pod",
 	Long: `Connects to a pod via the SPDY-proxy WebSocket tunnel exposed at
-/api/projects/{id}/terminal. By default the backend picks the first
-ready pod; use --pod <name> to target a specific one (names from
-'machines pods list'), or --app <app-id> for a multi-app pod.`,
-	Args: cobra.ExactArgs(1),
+/api/projects/{id}/terminal. Name a pod (positionally or with --app) to open
+the shell in that workload; --pod <name> targets one Kubernetes pod by its
+exact name (from 'machines pods list'). With neither, the backend picks the
+first ready pod in the machine.`,
+	Example: `  usectl machines pods shell api web
+  usectl machines pods shell api --pod web-7d9f8c6b5-x2k4q`,
+	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		// The terminal path supports ?pod= but not yet ?app_id= — when
-		// --app is given we resolve to the first pod prefixed with the
-		// app's sanitized name.
-		podName := podsShellPodName
-		if podName == "" && podsShellAppID != "" {
-			stats, err := client.GetProjectStats(args[0])
-			if err != nil {
-				return fmt.Errorf("resolve pods: %w", err)
-			}
-			// Best effort: prefer running pods that contain the app id
-			// fragment (we don't have name → app mapping client-side, so
-			// fall back to first pod).
-			for _, p := range stats.Pods {
-				if p.Status == "Running" {
-					podName = p.Name
-					break
-				}
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
+		if err != nil {
+			return err
+		}
+		// --app used to be resolved client-side to "the first Running pod in
+		// the machine" — any workload's, not the requested one. The server
+		// scopes by ?app_id= itself, so pass it through.
+		if podID == "" && podsShellAppID != "" {
+			if podID, err = resolvePod(client, machineID, podsShellAppID); err != nil {
+				return err
 			}
 		}
-		fmt.Printf("Connecting to machine %s%s...\n", args[0],
-			func() string {
-				if podName != "" {
-					return " pod=" + podName
-				}
-				return ""
-			}())
-		return client.StreamTerminal(args[0], podName)
+		target := ""
+		if podsShellPodName != "" {
+			target = " pod=" + podsShellPodName
+		}
+		fmt.Printf("Connecting to machine %s%s...\n", machineID, target)
+		return client.StreamTerminal(machineID, podsShellPodName, podID)
 	},
 }
 
 var podsDiagnosticsCmd = &cobra.Command{
-	Use:     "diagnostics <machine-id>",
+	Use:     "diagnostics [machine] [pod]",
 	Aliases: []string{"diag"},
 	Short:   "Show K8s lifecycle events + previous-crash logs for the failing pod",
-	Args:    cobra.ExactArgs(1),
+	Long: `Shows Kubernetes lifecycle events and the previous crash's logs. Name a
+pod to report on that workload; without one the server picks the machine's
+failing pod.`,
+	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		diag, err := client.GetDiagnostics(args[0])
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
+		if err != nil {
+			return err
+		}
+		diag, err := client.GetDiagnostics(machineID, podID)
 		if err != nil {
 			return err
 		}
@@ -258,21 +259,34 @@ var podsDiagnosticsCmd = &cobra.Command{
 }
 
 var podsRestartCmd = &cobra.Command{
-	Use:   "restart <machine-id>",
-	Short: "Rolling-restart every app in the machine (no rebuild)",
-	Long: `Bumps the kubectl.kubernetes.io/restartedAt annotation on each app's
-Deployment so the controller rolls the pods. Useful after editing
-project-level env vars or when you just want fresh containers.
+	Use:   "restart [machine] [pod]",
+	Short: "Rolling-restart one pod, or every pod in the machine (no rebuild)",
+	Long: `Bumps the kubectl.kubernetes.io/restartedAt annotation on the Deployment
+so the controller rolls the pods. Name a pod to restart just that workload;
+without one every pod in the machine is restarted. Useful after editing env
+vars or when you just want fresh containers.
 
 Single-app legacy machines fall back to a stop+start cycle since they
 don't have project_apps rows to iterate.`,
-	Args: cobra.ExactArgs(1),
+	Example: `  usectl machines pods restart api web    # just this pod
+  usectl machines pods restart api        # every pod`,
+	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		machineID := args[0]
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
+		if err != nil {
+			return err
+		}
+		if podID != "" {
+			if err := client.RestartApp(machineID, podID); err != nil {
+				return err
+			}
+			fmt.Println("✓ Restart started")
+			return nil
+		}
 		apps, err := client.ListProjectApps(machineID)
 		if err != nil {
 			return err
@@ -311,7 +325,7 @@ func init() {
 	podsLogsCmd.Flags().StringVar(&podsLogsAppID, "app", "", "Scope to one app (multi-app machines)")
 
 	podsShellCmd.Flags().StringVar(&podsShellPodName, "pod", "", "Specific pod name (default: first ready pod)")
-	podsShellCmd.Flags().StringVar(&podsShellAppID, "app", "", "Pick the first running pod of this app id")
+	podsShellCmd.Flags().StringVar(&podsShellAppID, "app", "", "Pod (workload) name or id to open the shell in — same as the positional pod")
 
 	podsCmd.Flags().BoolVar(&podsWide, "wide", false, "Show additional columns (entrypoint command)")
 	podsListCmd.Flags().BoolVar(&podsWide, "wide", false, "Show additional columns (entrypoint command)")

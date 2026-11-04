@@ -104,10 +104,10 @@ var deploymentsListCmd = &cobra.Command{
 			}
 			rows = append(rows, []string{
 				d.ID, d.Status, src, commit,
-				humanAge(d.CreatedAt), note,
+				humanAge(d.CreatedAt), deployTriggeredBy(d), note,
 			})
 		}
-		output.Table([]string{"ID", "STATUS", "SOURCE", "COMMIT", "AGE", "NOTE"}, rows)
+		output.Table([]string{"ID", "STATUS", "SOURCE", "COMMIT", "AGE", "BY", "NOTE"}, rows)
 		fmt.Printf("\nPage %d of %d  (%d total)\n", page.Page, page.TotalPages, page.Total)
 		return nil
 	},
@@ -327,4 +327,24 @@ func init() {
 	deploymentsTriageCmd.Flags().String("enabled", "", "turn AI triage on/off for the machine (true|false)")
 	deploymentsTriageCmd.Flags().String("github-comments", "", "post the diagnosis as a PR comment (true|false)")
 	rootCmd.AddCommand(deploymentsCmd)
+}
+
+// deployTriggeredBy renders who started a deploy: the user's email (with how,
+// when it was not a plain API call), or the webhook pusher. "—" for rows
+// from before the server recorded it.
+func deployTriggeredBy(d api.Deployment) string {
+	src := ""
+	if d.TriggerSource != nil {
+		src = *d.TriggerSource
+	}
+	if d.TriggeredByEmail != nil && *d.TriggeredByEmail != "" {
+		if src != "" && src != "api" {
+			return *d.TriggeredByEmail + " (" + src + ")"
+		}
+		return *d.TriggeredByEmail
+	}
+	if src != "" {
+		return src
+	}
+	return "—"
 }

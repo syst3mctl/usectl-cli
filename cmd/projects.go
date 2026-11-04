@@ -403,13 +403,14 @@ namespace.`,
 			}
 		}
 
-		project, err := client.CreateProject(req)
+		created, err := client.CreateProject(req)
 		if err != nil {
 			return err
 		}
+		project := &created.Project
 
 		if jsonOutput {
-			return output.JSON(project)
+			return output.JSON(created)
 		}
 
 		fmt.Printf("✓ Machine created: %s (%s)\n", project.Name, project.ID)
@@ -433,7 +434,11 @@ namespace.`,
 			}
 		}
 
-		fmt.Printf("\nNext: add a pod\n  usectl machines pods create %s --repo <url> --port <port>\n", project.Name)
+		if created.CheckoutURL != "" {
+			fmt.Printf("\nComplete payment to activate the machine:\n  %s\n", created.CheckoutURL)
+		}
+
+		fmt.Printf("\nNext: add a pod\n  usectl machines pods create %s --name <pod> --repo <url> --port <port>\n", project.Name)
 		return nil
 	},
 }
@@ -579,8 +584,8 @@ var projectsDeployCmd = &cobra.Command{
 	Short: "Build and deploy the latest commit",
 	Long: `Trigger a build and deployment.
 
-Naming a pod deploys just that workload. With no pod, every git-sourced pod in
-the machine is deployed, one request each.
+Naming a pod deploys just that workload. With no pod, every pod in the machine
+is deployed, one request each.
 
 That per-pod fan-out is deliberate: repository and branch live on the pod, not
 the machine, so there is no single HEAD for a machine to resolve. Asking the
@@ -588,9 +593,9 @@ server for a whole-machine deploy fails with "commit_hash is required (could
 not auto-resolve HEAD)" on any machine that does not carry a legacy top-level
 repo.
 
-Image-sourced pods are skipped — they have no repo to build from and are
-redeployed by changing their image reference.`,
-	Example: `  usectl machines deploy api          # every git-sourced pod
+Image-sourced pods are redeployed from their current image reference (no
+build runs).`,
+	Example: `  usectl machines deploy api          # every pod
   usectl machines deploy api web      # just this pod
   usectl machines deploy web api      # same — the order does not matter`,
 	Args: cobra.RangeArgs(0, 2),
@@ -617,8 +622,11 @@ redeployed by changing their image reference.`,
 				}
 				continue
 			}
-			if a.SourceType == "image" || (a.RepoURL == "" && a.ImageRef != "") {
-				continue // nothing to build
+			// Image-sourced pods used to be skipped here, which made this
+			// command a no-op for a machine of prebuilt images even though
+			// the server deploys them from their image reference.
+			if (a.SourceType == "image" || a.RepoURL == "") && a.ImageRef == "" {
+				continue // neither a repo nor an image: nothing to deploy
 			}
 			targets = append(targets, a)
 		}
@@ -627,7 +635,7 @@ redeployed by changing their image reference.`,
 			if podID != "" {
 				return fmt.Errorf("pod not found in this machine")
 			}
-			return fmt.Errorf("no git-sourced pods to deploy in this machine")
+			return fmt.Errorf("no deployable pods in this machine")
 		}
 
 		var failures int
@@ -1071,33 +1079,34 @@ Enable preview environments with:
 }
 
 var projectsShellCmd = &cobra.Command{
-	Use:   "shell [machine]",
+	Use:   "shell [machine] [pod]",
 	Short: "Connect to an interactive SPDY shell in the running pod",
 	Long: `Upgrades your connection to an interactive SPDY-proxy WebSocket tunnel,
-granting you direct /bin/sh access into the machine's running container securely.`,
-	Example: `  usectl machines shell a8f15889`,
-	Args:    cobra.RangeArgs(0, 1),
+granting you direct /bin/sh access into the machine's running container securely.
+
+Name a pod to open the shell in that workload; without one the server picks
+the first ready pod in the machine.`,
+	Example: `  usectl machines shell a8f15889
+  usectl machines shell a8f15889 api`,
+	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		if args, err = resolveFirstArg(client, args); err != nil {
-			return err
-		}
-
-		fmt.Printf("Connecting to project %s...\n", args[0])
-		err = client.StreamTerminal(args[0], "")
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
 		if err != nil {
 			return err
 		}
-		return nil
+
+		fmt.Printf("Connecting to machine %s...\n", machineID)
+		return client.StreamTerminal(machineID, "", podID)
 	},
 }
 
 var projectsDiagnosticsCmd = &cobra.Command{
-	Use:     "diagnostics [machine]",
-	Short:   "View K8s crash reports, reasons, and previous logs for a failing pod",
+	Use:   "diagnostics [machine] [pod]",
+	Short: "View K8s crash reports, reasons, and previous logs for a failing pod",
 	Long: `Returns precise Kubernetes pod lifecycle events to debug crash loops or
 CreateContainerConfigErrors.
 
@@ -1107,20 +1116,23 @@ addon is attached to it, so it has no DATABASE_URL — produces no events at all
 and will look healthy here. Use 'usectl machines doctor' for that class of
 problem.
 
-Takes a machine and nothing else; it reports on that machine's failing pod.`,
+Name a pod to report on that workload; without one it reports on the
+machine's failing pod.`,
 	Example: `  usectl machines diagnostics a8f15889
+  usectl machines diagnostics a8f15889 api
   usectl machines doctor a8f15889     # config problems that never crash`,
-	Args:    cobra.RangeArgs(0, 1),
+	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		if args, err = resolveFirstArg(client, args); err != nil {
+		machineID, podID, err := resolveMachineOptionalPod(client, args)
+		if err != nil {
 			return err
 		}
 
-		diag, err := client.GetDiagnostics(args[0])
+		diag, err := client.GetDiagnostics(machineID, podID)
 		if err != nil {
 			return err
 		}

@@ -40,6 +40,8 @@ var podSettings = []podSetting{
 	{"kind", "web|worker|release", "Pod kind", false},
 	{"group", "<name>|none", "Machine group this pod belongs to; 'none' moves it out", false},
 	{"command", "<string>", "Container entrypoint override", false},
+	{"grace", "<seconds>|default", "Seconds between SIGTERM and SIGKILL (0-3600); applies on next deploy", false},
+	{"prestop", "<command>|none", "Runs via sh -c before SIGTERM, e.g. to drain calls; counts against grace", false},
 	{"auto-deploy", "true|false", "Deploy automatically on push", false},
 	{"metrics", "true|false", "Scrape this pod's /metrics into the platform store", false},
 	{"cpu", "<millicores>", "CPU burst limit, e.g. 500m or 500", true},
@@ -192,6 +194,22 @@ key=value form would silently drop the ports it did not mention.`,
 				fmt.Println(output.Yellow("        redeploy it to bring it up in the new group."))
 			case "command":
 				upd.Command = &v
+			case "grace":
+				n := -1
+				if v != "default" {
+					parsed, err := strconv.Atoi(v)
+					if err != nil || parsed < 0 || parsed > 3600 {
+						return fmt.Errorf("grace must be 0-3600 seconds or 'default', got %q", v)
+					}
+					n = parsed
+				}
+				upd.TerminationGraceSeconds = &n
+			case "prestop":
+				cmdStr := v
+				if v == "none" {
+					cmdStr = ""
+				}
+				upd.PrestopCommand = &cmdStr
 			case "auto-deploy":
 				b, err := parseBool(k, v)
 				if err != nil {
@@ -209,17 +227,28 @@ key=value form would silently drop the ports it did not mention.`,
 				if err != nil {
 					return err
 				}
+				// Floors mirror the server's (app_resources.go) so the user
+				// sees the limit before a round trip, not a 400 after it.
+				if n < 50 {
+					return fmt.Errorf("cpu must be at least 50m, got %dm", n)
+				}
 				res.CPUMillis = &n
 			case "memory":
 				n, err := parseMiB(v)
 				if err != nil {
 					return err
 				}
+				if n < 64 {
+					return fmt.Errorf("memory must be at least 64Mi, got %dMi", n)
+				}
 				res.MemoryMiB = &n
 			case "storage":
 				n, err := parseMiB(v)
 				if err != nil {
 					return err
+				}
+				if n < 256 {
+					return fmt.Errorf("storage must be at least 256Mi, got %dMi", n)
 				}
 				res.StorageMiB = &n
 			case "rollout":

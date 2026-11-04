@@ -93,8 +93,14 @@ var (
 
 var quotaPreviewCmd = &cobra.Command{
 	Use:   "preview [machine]",
-	Short: "Dry-run a plan resize and check if the new totals fit the existing apps",
-	Args:  cobra.RangeArgs(0, 1),
+	Short: "Check whether the machine's pods and addons fit its current plan",
+	Long: `Reports whether every pod's replica floor and every dedicated addon fit the
+machine's current vCPU/RAM, with a shortfall and a recommendation if not.
+
+The server evaluates the CURRENT plan: the --vcpu/--ram/--storage flags are
+not used by it. To change the size, use 'usectl machines resize' — it refuses
+a size that would not fit.`,
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {

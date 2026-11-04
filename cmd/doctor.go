@@ -272,6 +272,12 @@ func runDoctorChecks(v *podsView, usage map[string]api.PodStats, machine string)
 
 		// The headline check. Only meaningful when the machine actually has
 		// addons — a machine with none is correctly configured with none.
+		//
+		// A warning, not an error: a frontend or a stateless worker is
+		// correctly configured with no addon, and reporting it as an error
+		// trained people to ignore the report. It stays a warning for every
+		// kind — a migrate (release) pod without the database is exactly the
+		// misconfiguration this check exists to catch.
 		if len(v.addons) > 0 && len(attached) == 0 {
 			names := make([]string, len(v.addons))
 			for i, ad := range v.addons {
@@ -279,11 +285,11 @@ func runDoctorChecks(v *podsView, usage map[string]api.PodStats, machine string)
 			}
 			sort.Strings(names)
 			out = append(out, finding{
-				Level: lvlError,
+				Level: lvlWarn,
 				Pod:   a.Name,
 				Check: "addons-unattached",
 				Detail: fmt.Sprintf(
-					"machine has %d addon(s) (%s) but none is attached to this pod — it receives no addon credentials",
+					"machine has %d addon(s) (%s) but none is attached to this pod — it receives no addon credentials (fine if it needs none)",
 					len(v.addons), strings.Join(names, ", ")),
 				Fix: fmt.Sprintf("usectl machines pods attach-addon %s %s --all", machine, a.Name),
 			})
@@ -323,6 +329,12 @@ func runDoctorChecks(v *podsView, usage map[string]api.PodStats, machine string)
 		if a.IsStopped {
 			continue
 		}
+		// A release pod is a one-shot Job run during deploys; it never has a
+		// running instance, so every runtime check below would report it as
+		// "may never have been deployed".
+		if a.Kind == "release" {
+			continue
+		}
 
 		inst := v.instancesFor(a.Name)
 		if len(inst) == 0 {
@@ -331,7 +343,7 @@ func runDoctorChecks(v *podsView, usage map[string]api.PodStats, machine string)
 				Pod:    a.Name,
 				Check:  "not-running",
 				Detail: "pod is not stopped but has no running instance — it may never have been deployed",
-				Fix:    fmt.Sprintf("usectl machines deploy %s", machine),
+				Fix:    fmt.Sprintf("usectl machines deploy %s %s", machine, a.Name),
 			})
 		}
 		out = append(out, instanceFindings(a.Name, inst, machine)...)

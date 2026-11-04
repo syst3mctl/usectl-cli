@@ -68,18 +68,7 @@ Machine and pod may be given in either order. The explicit subcommands
 				k, v, _ := strings.Cut(p, "=")
 				vars[k] = v
 			}
-			if podID != "" {
-				if err := client.UpdateAppEnvs(machineID, podID, vars); err != nil {
-					return err
-				}
-				fmt.Printf("✓ Set %d variable(s) on this pod. Takes effect on the next deploy.\n", len(vars))
-				return nil
-			}
-			if err := client.SetEnvs(machineID, vars); err != nil {
-				return err
-			}
-			fmt.Printf("✓ Set %d machine-wide variable(s). Takes effect on the next deploy.\n", len(vars))
-			return nil
+			return setEnvsScoped(client, machineID, podID, positional, vars)
 		}
 
 		if podID != "" {
@@ -149,44 +138,88 @@ var envsListCmd = &cobra.Command{
 	},
 }
 
-var envsSetCmd = &cobra.Command{
-	Use:   "set [machine] KEY=value [KEY=value ...]",
-	Short: "Set or update environment variables (merge behavior)",
-	Long: `Set one or more environment variables for a machine. Uses merge behavior —
-existing variables not included in this command are preserved.
+var envsSetPod string
 
-Changes take effect on the next deployment. Trigger a deploy with:
-  usectl machines deploy [machine]`,
-	Example: `  usectl envs set a8f15889 API_KEY=sk-123 NODE_ENV=production
-  usectl envs set a8f15889 STRIPE_SECRET=sk_live_abc123`,
+var envsSetCmd = &cobra.Command{
+	Use:   "set [machine] [pod] KEY=value [KEY=value ...]",
+	Short: "Set or update environment variables on the machine or one pod (merge)",
+	Long: `Set one or more environment variables. Uses merge behavior — existing
+variables not included in this command are preserved.
+
+Without a pod the variables are MACHINE-WIDE: every pod in the machine
+receives them. Name a pod (positionally or with --pod) to set them on that
+pod only — do that for secrets only one service should see.
+
+Changes take effect on each pod's next deployment.`,
+	Example: `  usectl envs set a8f15889 NODE_ENV=production          # every pod
+  usectl envs set a8f15889 api STRIPE_SECRET=sk_live_abc # pod 'api' only
+  usectl envs set a8f15889 --pod api STRIPE_SECRET=sk_live_abc`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := api.NewClient(apiURL)
 		if err != nil {
 			return err
 		}
-		if args, err = resolveFirstArg(client, args); err != nil {
-			return err
-		}
 
-		projectID := args[0]
+		var positional []string
 		vars := make(map[string]string)
-		for _, arg := range args[1:] {
-			parts := strings.SplitN(arg, "=", 2)
-			if len(parts) != 2 {
+		for _, arg := range args {
+			k, v, ok := strings.Cut(arg, "=")
+			if !ok {
+				positional = append(positional, arg)
+				continue
+			}
+			if k == "" {
 				return fmt.Errorf("invalid format: %q (expected KEY=value)", arg)
 			}
-			vars[parts[0]] = parts[1]
+			vars[k] = v
+		}
+		if len(vars) == 0 {
+			return fmt.Errorf("no KEY=value pairs given")
+		}
+		if envsSetPod != "" {
+			positional = append(positional, envsSetPod)
 		}
 
-		if err := client.SetEnvs(projectID, vars); err != nil {
+		machineID, podID, err := resolveMachineOptionalPod(client, positional)
+		if err != nil {
 			return err
 		}
-
-		fmt.Printf("✓ Set %d environment variable(s). Deploy to apply:\n", len(vars))
-		fmt.Printf("  usectl machines deploy %s\n", projectID)
-		return nil
+		return setEnvsScoped(client, machineID, podID, positional, vars)
 	},
+}
+
+// setEnvsScoped writes variables machine-wide or to one pod and ALWAYS says
+// which. The machine-wide and per-pod forms differ by a single token
+// (`envs api KEY=v` vs `envs api web KEY=v`), and the explicit `set`
+// subcommand had no pod form at all — so a secret meant for one service was
+// easy to hand to every pod without noticing.
+func setEnvsScoped(client *api.Client, machineID, podID string, positional []string, vars map[string]string) error {
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	if podID != "" {
+		if err := client.UpdateAppEnvs(machineID, podID, vars); err != nil {
+			return err
+		}
+		pod := podID
+		if len(positional) > 0 {
+			pod = positional[len(positional)-1]
+		}
+		fmt.Printf("✓ Set %d variable(s) on pod %s only: %s\n", len(vars), pod, strings.Join(keys, ", "))
+		fmt.Printf("  Takes effect on that pod's next deploy:  usectl machines deploy %s %s\n", machineID, pod)
+		return nil
+	}
+	if err := client.SetEnvs(machineID, vars); err != nil {
+		return err
+	}
+	fmt.Printf("✓ Set %d variable(s) MACHINE-WIDE — every pod receives them: %s\n", len(vars), strings.Join(keys, ", "))
+	fmt.Println("  To scope a variable to one pod instead:  usectl machines envs <machine> <pod> KEY=value")
+	fmt.Println("  Takes effect on each pod's next deploy.")
+	return nil
 }
 
 var envsDeleteCmd = &cobra.Command{
@@ -307,6 +340,7 @@ machine's variables.`,
 func init() {
 	envsCmd.AddCommand(envsListCmd)
 	envsCmd.AddCommand(envsSetCmd)
+	envsSetCmd.Flags().StringVar(&envsSetPod, "pod", "", "Set the variables on this pod only (default: machine-wide)")
 	envsCmd.AddCommand(envsDeleteCmd)
 	envsCmd.AddCommand(envsProtectCmd)
 	rootCmd.AddCommand(envsCmd)

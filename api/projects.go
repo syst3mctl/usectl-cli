@@ -122,6 +122,9 @@ type Deployment struct {
 	// ImagePrunedAt is set when retention reclaimed this deployment's image
 	// (mig 067). Non-nil means rollback here is no longer possible.
 	ImagePrunedAt *string `json:"image_pruned_at,omitempty"`
+	// Who started the deploy (server mig 089); nil on older rows and servers.
+	TriggeredByEmail *string `json:"triggered_by_email,omitempty"`
+	TriggerSource    *string `json:"trigger_source,omitempty"`
 }
 
 type ProjectWithDeployment struct {
@@ -195,9 +198,17 @@ type DiagnosticResponse struct {
 	PreviousLogs    string             `json:"previous_logs,omitempty"`
 }
 
-func (c *Client) GetDiagnostics(id string) (*DiagnosticResponse, error) {
+// GetDiagnostics reports on the machine's failing pod. appID (optional)
+// narrows it to one pod's workload — the server has supported ?app_id= all
+// along; the CLI never sent it, so multi-pod machines got whichever pod the
+// server picked.
+func (c *Client) GetDiagnostics(id, appID string) (*DiagnosticResponse, error) {
 	var resp DiagnosticResponse
-	err := c.Get(fmt.Sprintf("/api/projects/%s/diagnostics", id), &resp)
+	path := fmt.Sprintf("/api/projects/%s/diagnostics", id)
+	if appID != "" {
+		path += "?app_id=" + url.QueryEscape(appID)
+	}
+	err := c.Get(path, &resp)
 	return &resp, err
 }
 
@@ -219,10 +230,20 @@ func (c *Client) GetProject(id string) (*Project, error) {
 	return &project, err
 }
 
-func (c *Client) CreateProject(req CreateProjectRequest) (*Project, error) {
-	var project Project
-	err := c.Post("/api/projects", req, &project)
-	return &project, err
+// CreateProjectResult is the create response. The server wraps the project
+// (`{"project": {...}, "checkout_url": "..."}`); decoding it as a bare
+// Project left every field empty, so the CLI printed "Machine created:  ()",
+// `--env` posted to an empty ID, and the checkout link for a paid machine
+// was silently dropped.
+type CreateProjectResult struct {
+	Project     Project `json:"project"`
+	CheckoutURL string  `json:"checkout_url,omitempty"`
+}
+
+func (c *Client) CreateProject(req CreateProjectRequest) (*CreateProjectResult, error) {
+	var res CreateProjectResult
+	err := c.Post("/api/projects", req, &res)
+	return &res, err
 }
 
 func (c *Client) UpdateProject(id string, req UpdateProjectRequest) (*Project, error) {
@@ -382,10 +403,16 @@ func (c *Client) ListActivePRs(projectID string) ([]Deployment, error) {
 	return deployments, err
 }
 
-func (c *Client) StreamTerminal(projectID string, podName string) error {
+// StreamTerminal opens /bin/sh in a pod. podName targets a Kubernetes pod by
+// name; appID targets the first running pod of that workload. Both empty =
+// the server picks the first ready pod in the machine.
+func (c *Client) StreamTerminal(projectID, podName, appID string) error {
 	path := fmt.Sprintf("/api/projects/%s/terminal?token=%s", projectID, url.QueryEscape(c.Token))
 	if podName != "" {
 		path += fmt.Sprintf("&pod=%s", url.QueryEscape(podName))
+	}
+	if appID != "" {
+		path += fmt.Sprintf("&app_id=%s", url.QueryEscape(appID))
 	}
 
 	wsURL := c.BaseURL

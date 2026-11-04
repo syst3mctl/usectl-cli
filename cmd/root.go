@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -16,15 +17,23 @@ var (
 	colorMode  string
 )
 
-// Version is set at build time by GoReleaser via ldflags. The default below
-// reflects the latest released version so unstamped local builds still report
-// something meaningful.
-var Version = "v2.2.0"
+// Version is set at build time by GoReleaser (and the Makefile) via ldflags.
+// An unstamped build says "dev" — the old fallback was a hard-coded release
+// number that went stale (it still claimed v2.2.0 at v2.13.0) and made local
+// builds lie about what they were.
+var Version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:     "usectl",
 	Short:   "usectl — CLI for the usectl.com deployment platform",
 	Version: Version,
+	// A failing RunE used to print the whole help text above the real error
+	// (`pods set storage=128Mi` buried "storage_mib must be at least 256"
+	// under 40 lines of usage), and cobra plus Execute() printed the error
+	// twice. Execute() prints it once, with a pointer to --help when the
+	// mistake was in the invocation itself.
+	SilenceUsage:  true,
+	SilenceErrors: true,
 	Long: `usectl is the CLI for the usectl.com platform. It provides full lifecycle
 management for your applications on Kubernetes.
 
@@ -43,7 +52,8 @@ Command Groups:
   machines members     Members, roles, invitations, per-developer scope
   machines domains     Custom domains, including per-pod pinning
   machines cron        Scheduled cron jobs and run history
-  machines quota       Quota, recommendations, resize previews
+  machines resize      Change vCPU / RAM / storage (prorated, or via checkout)
+  machines quota       Quota fit and recommendations
   machines usage       Allocation against the plan's limits
   machines settings    Machine-level configuration
   machines vars        Build-time vs runtime variable exposure
@@ -189,10 +199,30 @@ func Execute() {
 	// independent of the filename ordering init() would otherwise impose.
 	attachMachineScopedCommands()
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	updateDone := startUpdateCheck()
+	cmd, err := rootCmd.ExecuteC()
+	if err == nil {
+		printUpdateNotice(updateDone)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		if isUsageError(err) && cmd != nil {
+			fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", cmd.CommandPath())
+		}
 		os.Exit(1)
 	}
+}
+
+// isUsageError reports whether err came from cobra's own argument or flag
+// validation — the cases where pointing at --help helps, unlike an API error.
+func isUsageError(err error) bool {
+	msg := err.Error()
+	for _, s := range []string{"unknown command", "unknown flag", "unknown shorthand flag", "flag needs an argument", "invalid argument", "accepts ", "requires at least", "requires at most", "arg(s)"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

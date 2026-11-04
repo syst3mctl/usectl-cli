@@ -134,12 +134,20 @@ type ProjectCheckoutRequest struct {
 	CancelURL   string  `json:"cancel_url"`
 }
 
-func (c *Client) CreateProjectCheckout(projectID string, req ProjectCheckoutRequest) (string, error) {
-	var resp struct {
-		URL string `json:"url"`
-	}
+// ProjectCheckoutResult is the checkout response. A resize does not always
+// need a payment page: inside a trial, for an admin, or when the machine
+// already has a subscription (its price is swapped and prorated), the server
+// applies the size directly and returns payment_required=false with no URL.
+type ProjectCheckoutResult struct {
+	URL             string `json:"url"`
+	PaymentRequired bool   `json:"payment_required"`
+	Message         string `json:"message,omitempty"`
+}
+
+func (c *Client) CreateProjectCheckout(projectID string, req ProjectCheckoutRequest) (*ProjectCheckoutResult, error) {
+	var resp ProjectCheckoutResult
 	err := c.Post(fmt.Sprintf("/api/projects/%s/billing/checkout", projectID), req, &resp)
-	return resp.URL, err
+	return &resp, err
 }
 
 func (c *Client) CreateProjectBillingPortal(projectID, returnURL string) (string, error) {
