@@ -31,17 +31,22 @@ var (
 	dbHistLim  int
 	dbAfter    []string
 	dbFull     bool
+	dbDatabase string
 )
 
 var dbCmd = &cobra.Command{
 	Use:   "db",
-	Short: "Browse and query a machine's PostgreSQL addon",
-	Long: `Browse tables and run SQL against a PostgreSQL addon, without its password
-ever leaving the server.
+	Short: "Browse and query a machine's database addons (PostgreSQL, SQL Server, MongoDB, Redis)",
+	Long: `Browse and query database addons without their passwords ever leaving the
+server.
+
+  PostgreSQL, SQL Server   tables, describe, rows, query   (--database picks a SQL Server database)
+  MongoDB                  tables (collections), find, aggregate
+  Redis                    keys, get, redis "<command>"
 
 Access follows your machine role, exactly as in the dashboard:
-  viewer             read-only (SELECT, WITH, VALUES, TABLE, EXPLAIN, SHOW)
-  developer, owner   may also change data with --write
+  viewer             read-only
+  developer, owner   may also change data (--write; redis write commands)
 
 Every statement is recorded in the machine's shared query history.
 
@@ -104,7 +109,19 @@ var dbTablesCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		tables, err := client.DBTables(mID, aID, dbSchema)
+		if acc, aerr := client.DBAccess(mID, aID); aerr == nil {
+			switch acc.Addon.Kind {
+			case "mongodb":
+				return printMongoCollections(client, mID, aID)
+			case "redis":
+				return fmt.Errorf("Redis has keys, not tables — use 'usectl db keys'")
+			case "mssql":
+				if dbSchema == "public" {
+					dbSchema = "dbo"
+				}
+			}
+		}
+		tables, err := client.DBTables(mID, aID, dbSchema, dbDatabase)
 		if err != nil {
 			return err
 		}
@@ -120,7 +137,7 @@ var dbTablesCmd = &cobra.Command{
 			rows = append(rows, []string{t.Name, strings.ReplaceAll(t.Kind, "_", " "), est, humanBytes(t.SizeBytes)})
 		}
 		if len(rows) == 0 {
-			if schemas, sErr := client.DBSchemas(mID, aID); sErr == nil {
+			if schemas, sErr := client.DBSchemas(mID, aID, dbDatabase); sErr == nil {
 				fmt.Printf("No tables in schema %q. Schemas: %s\n", dbSchema, strings.Join(schemas, ", "))
 				return nil
 			}
@@ -144,8 +161,8 @@ var dbDescribeCmd = &cobra.Command{
 		if len(rest) != 1 {
 			return errors.New("name the table, e.g. 'usectl db describe <machine> <addon> users'")
 		}
-		schema, table := splitTable(rest[0], dbSchema)
-		info, err := client.DBDescribe(mID, aID, schema, table)
+		schema, table := splitTable(rest[0], sqlSchema(client, mID, aID))
+		info, err := client.DBDescribe(mID, aID, schema, table, dbDatabase)
 		if err != nil {
 			return err
 		}
@@ -227,8 +244,8 @@ var dbRowsCmd = &cobra.Command{
 		if len(rest) != 1 {
 			return errors.New("name the table, e.g. 'usectl db rows <machine> <addon> users'")
 		}
-		schema, table := splitTable(rest[0], dbSchema)
-		req := api.DBBrowseRequest{Schema: schema, Table: table, Limit: dbLimit, Offset: dbOffset, Count: dbCount,
+		schema, table := splitTable(rest[0], sqlSchema(client, mID, aID))
+		req := api.DBBrowseRequest{Database: dbDatabase, Schema: schema, Table: table, Limit: dbLimit, Offset: dbOffset, Count: dbCount,
 			Filters: []api.DBFilter{}, Sort: []api.DBSort{}}
 		for _, w := range dbWhere {
 			f, err := parseWhere(w)
@@ -274,7 +291,7 @@ var dbRowsCmd = &cobra.Command{
 			// Primary-key order (no --sort): print the cursor for the next
 			// page — fast at any depth, unlike --offset.
 			if len(dbSortFlag) == 0 {
-				if info, err := client.DBDescribe(mID, aID, schema, table); err == nil && len(info.PrimaryKey) > 0 {
+				if info, err := client.DBDescribe(mID, aID, schema, table, dbDatabase); err == nil && len(info.PrimaryKey) > 0 {
 					last := res.Rows[len(res.Rows)-1]
 					var parts []string
 					for _, pk := range info.PrimaryKey {
@@ -331,7 +348,7 @@ The SQL comes from the argument, --file, or standard input.`,
 		if err != nil {
 			return err
 		}
-		res, err := client.DBQuery(mID, aID, sql, dbWrite, dbYes)
+		res, err := client.DBQuery(mID, aID, sql, dbWrite, dbYes, dbDatabase)
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == 409 && dbWrite && !dbYes {
 			return fmt.Errorf("%s\nrerun with --yes to confirm", apiErr.Message)
@@ -456,7 +473,10 @@ func printDBResult(res *api.DBResult) {
 
 func init() {
 	for _, c := range []*cobra.Command{dbTablesCmd, dbDescribeCmd, dbRowsCmd} {
-		c.Flags().StringVar(&dbSchema, "schema", "public", "Schema to use")
+		c.Flags().StringVar(&dbSchema, "schema", "public", "Schema to use (SQL Server defaults to dbo)")
+	}
+	for _, c := range []*cobra.Command{dbTablesCmd, dbDescribeCmd, dbRowsCmd, dbQueryCmd} {
+		c.Flags().StringVar(&dbDatabase, "database", "", "SQL Server: which database (default: the addon's)")
 	}
 	dbRowsCmd.Flags().StringArrayVar(&dbWhere, "where", nil, "Filter, e.g. 'status = paid', 'email ~ gmail', 'deleted_at is null' (repeatable)")
 	dbRowsCmd.Flags().StringArrayVar(&dbSortFlag, "sort", nil, "Sort column; prefix with - for descending (repeatable)")
@@ -472,6 +492,19 @@ func init() {
 	dbHistoryCmd.Flags().BoolVar(&dbMine, "mine", false, "Only your own statements")
 	dbHistoryCmd.Flags().IntVar(&dbHistLim, "limit", 30, "How many entries")
 
-	dbCmd.AddCommand(dbAccessCmd, dbTablesCmd, dbDescribeCmd, dbRowsCmd, dbQueryCmd, dbHistoryCmd)
+	dbCmd.AddCommand(dbAccessCmd, dbTablesCmd, dbDescribeCmd, dbRowsCmd, dbQueryCmd, dbHistoryCmd,
+		dbFindCmd, dbAggregateCmd, dbKeysCmd, dbGetCmd, dbRedisCmd)
 	rootCmd.AddCommand(dbCmd)
+}
+
+// sqlSchema is the default schema when --schema was not given: dbo on SQL
+// Server, public on PostgreSQL.
+func sqlSchema(client *api.Client, mID, aID string) string {
+	if dbSchema != "public" {
+		return dbSchema
+	}
+	if acc, err := client.DBAccess(mID, aID); err == nil && acc.Addon.Kind == "mssql" {
+		return "dbo"
+	}
+	return dbSchema
 }
