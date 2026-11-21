@@ -50,7 +50,7 @@ Subcommands:
   get          One addon in full: config, credentials, backups, pods
   add          Provision an addon (interactive when --type is omitted)
   remove       Deprovision an addon
-  ui           Toggle the addon's admin UI (pgAdmin, Redis Commander, ...)
+  ui           Toggle the addon's admin UI (Redis Commander, mongo-express, CloudBeaver)
   config       Patch behavioural config (e.g. NATS_WS_*)
   nats-auth    How WebSocket clients of a dedicated NATS log in (password / read-only / per-user)
   start/stop   Scale a dedicated addon to 0 and back`,
@@ -333,7 +333,7 @@ var (
 
 var addonsUICmd = &cobra.Command{
 	Use:   "ui [machine] <type-or-id>",
-	Short: "Enable or disable the addon's admin UI (pgAdmin, Redis Commander, ...)",
+	Short: "Enable or disable the addon's admin UI (Redis Commander, mongo-express, CloudBeaver; PostgreSQL uses 'usectl db')",
 	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if addonUIEnable == addonUIDisable {
