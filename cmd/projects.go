@@ -408,11 +408,31 @@ namespace.`,
 			return err
 		}
 		project := &created.Project
+		// A reply without the machine (seen once in testing, not reproduced)
+		// printed "Machine created:  ()". Find it by name instead of printing
+		// blanks — and of running the env step below against an empty id.
+		if project.ID == "" {
+			if list, lerr := client.ListProjects(); lerr == nil {
+				for i := range list {
+					if list[i].Project.Name == req.Name {
+						created.Project = list[i].Project
+						break
+					}
+				}
+			}
+		}
 
 		if jsonOutput {
 			return output.JSON(created)
 		}
 
+		if project.ID == "" {
+			fmt.Printf("✓ Machine %q requested — run `usectl machines list` to see it.\n", req.Name)
+			if created.CheckoutURL != "" {
+				fmt.Printf("\nComplete payment to activate the machine:\n  %s\n", created.CheckoutURL)
+			}
+			return nil
+		}
 		fmt.Printf("✓ Machine created: %s (%s)\n", project.Name, project.ID)
 		fmt.Printf("  Namespace  kdeploy-%s\n", project.Name)
 		fmt.Printf("  Size       %s vCPU · %s GB RAM · %s GB storage\n",
